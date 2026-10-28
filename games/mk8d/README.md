@@ -21,12 +21,12 @@ full screen on the built-in display (3420x2146, 60 Hz).
 | Miis | the six default Miis and random Miis for the demo race; heads are empty (see below) |
 | Saves | the device save and the account save are kept apart |
 | Menus | single player, the mode menu, the cc select and Time Trial's character select, with their H.264 movie previews (VideoToolbox) |
+| Shader seed | every shader of the game (29,717, as 30,795 variants) translated and compiled at build time; in a test start from an empty cache the game translated none in play and loaded all 601 libraries it used precompiled |
 
 The game renders its own 1080p picture; the app scales it to the screen (key 3: MetalFX upscaling). The FPS line in the
 top-right corner (`TOTK_FPS_OVERLAY=0` hides it) shows the frame rate and the size of the picture on screen.
 
-Not yet: the whole-game shader seed (the first visit to each scene compiles its shaders, so expect short stutters there),
-other cups and modes checked by hand, iPhone / iPad.
+Not yet: other cups and modes checked by hand, iPhone / iPad. The race numbers above are from before the shader seed.
 
 ## Building
 
@@ -48,8 +48,16 @@ on the same volume as the work folder its game files are APFS clones and take no
   session's log (`previous-run.log`, `crash-<time>.log`).
 - Create an empty file `MK8D Data/windowed` to play in a window.
 - **First launch is slow, once.** After each packaging, macOS checks the newly signed app (about a minute and a half
-  before anything shows). The app also has a Metal shader cache of its own, so its first session compiles every shader
-  before the title (about two minutes on an M5). Later launches reach the title in seconds.
+  before anything shows), and the app imports the shader seed into its cache. Later launches reach the title in seconds.
+
+**The shader seed** (step 8 of `build_mk8d.py`; `--skip-seed` leaves it out). Every shader the game has is found in your
+game files, translated to Metal and compiled ahead of time, instead of the first time a scene shows it in play. On an M5
+the first build spends about 3 minutes translating and 15 compiling (14,976 Metal libraries); later builds reuse both.
+The work folder holds 0.9 GB of seed and 0.2 GB of libraries; the app's copies are APFS clones. `assets/shader_list.tsv`
+adds the bind states met in play that the default translations do not serve (shader keys and bind states only).
+At start the app warms only the shaders this Mac has used (`TOTK_WARM_SCOPE=observed`; `all` warms the whole cache), and
+the rest load from their precompiled libraries when first drawn. What a seed does not remove is building each render
+pipeline the first time: the first race in a new data folder still builds a few hundred at its loading screen.
 
 `--game` and `--update` take NSP or NSZ files. `--firmware` is your Switch firmware as a folder of NCA files: the system fonts
 come from it. `--work` must be outside the checkout and outside iCloud Drive (Desktop and Documents are synced when that is on), with no space in its path; it holds data from your own game, so never
@@ -64,6 +72,8 @@ Tests (no game files): `python -m unittest discover -s games/mk8d/tests` from th
   host mounts an empty stand-in, so bodies and favourite colours show and heads draw nothing.
 - No online play and no local wireless: the host answers offline, and the game takes its offline paths.
 - The Booster Course Pass is not loaded yet (its add-on content is not mounted).
+- The first visit to a scene still builds its render pipelines (the seed covers shaders, not pipelines); a played data
+  folder warms the ones it has recorded.
 - Shader list contributions are not collected for this game yet (the launcher sets no contribution file).
 - The app contains game data from your own dump: never share it.
 

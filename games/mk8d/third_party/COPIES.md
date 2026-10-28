@@ -13,7 +13,7 @@ sead / agl engine on NVN, H.264 movies on VideoToolbox, 60 fps. What Odyssey had
 |---|---|
 | `d2r/` (MIT, see its LICENSE) | `games/by3/third_party/d2r`: the ahead-of-time ARM64 rewriter (`patch_nso.py`, `equiv.py`, `structck.py`) |
 | `d2r_gfx/` (MIT / BSD, licences inside) | `games/totk/third_party/d2r_gfx`, with Odyssey's changes: NVN on Metal 4, texture decoding, frame pacing |
-| `totk-scripts/` | `games/totk/scripts`: `extract_exefs`, `extract_romfs`, `extract_shared_fonts` (Odyssey's `prepare_shader_seed` and `shader_list` are left out until this game has a seed) |
+| `totk-scripts/` | `games/totk/scripts`: `extract_exefs`, `extract_romfs`, `extract_shared_fonts`; `prepare_shader_seed`, `shader_list` from Odyssey's copy at `e29aa90` (see Shader seed below) |
 | `by3-scripts/` | `games/by3/scripts`: `merge_romfs` (with its `extract_exefs` / `extract_romfs`), `prepare_modules` |
 | `smaa/` (MIT) | SMAA area and search textures, as Odyssey carries them |
 | `licenses/` | the licences of the above |
@@ -21,8 +21,8 @@ sead / agl engine on NVN, H.264 movies on VideoToolbox, 60 fps. What Odyssey had
 
 Left out of the copy: Odyssey's research notes and changelog, its Xcode project, its shader list and input pins, its key 3
 render-size table scripts (`make_render_res_overlay.py`, `make_resolution_overlay.py`), its survey and probe scripts (several
-read `games/totk` directly), and, until this game has its own versions, its shader-seed scripts
-(`prepare_odyssey_shader_seed.py`, `precompile_cached_shaders.py`). Its app packaging came back adapted (below).
+read `games/totk` directly) and its shader-seed wrapper `prepare_odyssey_shader_seed.py` (this game has its own, below).
+Its app packaging came back adapted (below).
 
 ## Changes made here
 
@@ -86,6 +86,24 @@ and the function makes no calls). Every rewritten site of `main`, `sdk` and `sub
 - NSZ inputs are expanded with `nsz -D`, as the repository's `build_app.py` does.
 - The work folder must be outside the checkout and outside iCloud Drive (Desktop and Documents when synced).
 - Steps 0–1 are skipped once the game is extracted.
+
+**Shader seed (`../scripts`, `totk-scripts/`, `../assets/shader_list.tsv`).**
+- `totk-scripts/prepare_shader_seed.py` is Odyssey's copy, unchanged. `totk-scripts/shader_list.py` is Odyssey's copy with
+  two changes: a header for this game's list (`HEADERS['mk8d']`, chain `totk-native-v4-unverified`), and `export`'s default
+  source names this game's list instead of `games/totk`'s.
+- `prepare_mk8d_shader_seed.py` (new, after Odyssey's `prepare_odyssey_shader_seed.py`) runs the shared tool with this
+  game's differences: the runtime's chain; every RomFS file and `main` scanned, by one process per core (shaders sit in
+  each course's and object's archives); SARC members without a name read by index (the UI layouts; the shared reader
+  rejected those archives whole, which hid 29 UI shaders); vertex `.variants` rows marked `depth_minus_w`; no
+  `shader-keys.json` (the importer rejects it). An unchanged seed is reused.
+- `precompile_shader_libs.py` is Odyssey's `precompile_cached_shaders.py`, reading the seed and keeping only libraries
+  the seed still names.
+- `../assets/shader_list.tsv` (new): this game's list, shader keys and bind states only. Its 142 rows are the states met in
+  play that the seed's default translations do not serve (textures bound as depth textures, `uint` colour outputs),
+  from `shader_list.py merge` of the play caches and `prune` against the seed.
+- `build_mk8d.py` step 8 runs both (`--skip-seed` leaves them out); `package_mk8d_app.py` clones the seed and the
+  libraries into the app; the launcher and `make run` default to `TOTK_WARM_SCOPE=observed`, so a start warms what this
+  Mac has used rather than all ~30,000 shaders.
 
 **App (`../scripts`, `make app`).**
 - `package_mk8d_app.py` and `mk8d_app_launcher.c` are adapted from Odyssey's `package_native_app.py` and
