@@ -416,6 +416,16 @@ static void h_ctor(void *obj, int type, int format, int mode, int priority) {
     if (type == TYPE_AVC) LOG("H.264 decoder %p on the host (VideoToolbox), output format %d", obj, format);
     else LOG("VP9 decoder %p on the host (libvpx %s), output format %d", obj, vpx_codec_version_str(), format);
 }
+/* sdk 4.4.0 (Mario Kart 8 Deluxe: the H.264 previews of its menus) constructs decoders with the three-argument constructor,
+   which builds the object itself instead of calling the four-argument one, so it is answered too: H.264 / VP9 in buffer
+   mode on the host, anything else by the library's own three-argument constructor. */
+typedef void (*ctor3_fn)(void *, int, int, int);
+static void h_ctor3(void *obj, int type, int format, int mode) {
+    if ((type == TYPE_VP9 || type == TYPE_AVC) && mode == MODE_BUFFER) { h_ctor(obj, type, format, mode, 0); return; }
+    static void *orig; if (!orig) need_symbol(&orig, "_ZN5movie7DecoderC1ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeE");
+    LOG("decoder type %d mode %d format %d: left to the library (only VP9 / H.264 in buffer mode run on the host)", type, mode, format);
+    ((ctor3_fn)orig)(obj, type, format, mode);
+}
 static void destroy(void *obj) {
     pthread_mutex_lock(&g_lock); Movie *m = NULL;
     for (int i = 0; i < MAX_MOVIES; i++) if (g_movies[i] && g_movies[i]->guest == obj) { m = g_movies[i]; g_movies[i] = NULL; }
@@ -636,6 +646,8 @@ void *runtime_movie_override(const char *name) {
     for (int i = 0; i < MOVIE_ENTRIES; i++) if (!strcmp(name, NAMES[i])) return ENTRIES[i];
     /* aliases: the base-object constructor and the complete-object destructor share code with the entries above */
     if (!strcmp(name, "_ZN5movie7DecoderC2ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeEi")) return h_ctor;
+    if (!strcmp(name, "_ZN5movie7DecoderC1ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeE") ||
+        !strcmp(name, "_ZN5movie7DecoderC2ENS_11DecoderTypeENS_19DecoderOutputFormatENS_11DecoderModeE")) return h_ctor3;
     if (!strcmp(name, "_ZN5movie7DecoderD1Ev")) return h_d2;
     return NULL;
 }
