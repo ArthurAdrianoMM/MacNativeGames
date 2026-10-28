@@ -32,7 +32,7 @@ def main():
         tickets = common_tickets(source, entries)
         controls = [(record, hdr) for record, hdr in nca_inventory(source, entries, keys)
                     if record['content_type'] == 2 and record['title_id'] == TITLE]
-        require(len(controls) == 2, 'Expected base and update Control NCAs')
+        require(controls, 'Expected a Control NCA: the update (NSP or NSZ, whose Control NCA is stored as is) or the joined NSP')
         for record, hdr in controls:
             start, end, fs = romfs_section(hdr)
             require(fs[4] == 3, 'Expected direct AES-CTR Control RomFS')

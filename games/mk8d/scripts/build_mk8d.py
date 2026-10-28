@@ -13,9 +13,10 @@ so a failed run can simply be started again):
  4. rewrite the ARM64 modules ahead of time (third_party/d2r/patch_nso.py, native ruleset)
  5. loader tables: verifies ExeFS, rewrite and RomFS against assets/expected-4.0.1.json
  6. shader tools (pinned SPIRV-Cross) and the runtime
+ 7. the app icon, read from the update's Control data (for `make app`, scripts/package_mk8d_app.py)
 
 Everything written stays in the work folder, outside the checkout (or an ignored *_build folder of games/mk8d): it holds
-game data, so never share or commit it. The whole-game shader seed and the app package are not built yet.
+game data, so never share or commit it. The whole-game shader seed is not built yet; `make app WORK=…` packages the app.
 """
 import argparse
 import json
@@ -206,8 +207,16 @@ def main():
     run(["make", f"-j{args.jobs}", "runtime", f"WORK={os.path.relpath(work, GAME_DIR)}", f"PY={py}"],
         env={"DEVELOPER_DIR": args.developer_dir})
     done(t)
+
+    t = step(7, "App icon")
+    icon = work / "app-assets/icon.jpg"
+    if icon.is_file():
+        print("   icon already extracted")
+    else:   # an NSZ keeps its small Control NCA as is, so the update is read where it is
+        run([py, "scripts/extract_app_icon.py", args.update, *keyargs, "--output", icon])
+    done(t)
     print(f"\nBuilt {work / 'build/mk8d-native'} in {(time.monotonic() - started) / 60:.0f} min. The work folder holds game data "
-          "from your own dump: do not share it.")
+          f"from your own dump: do not share it.\nPlay: make run WORK={work}, or package the app: make app WORK={work}")
 
 
 if __name__ == "__main__":

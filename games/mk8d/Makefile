@@ -37,7 +37,7 @@ $(OUT)/mk8d-native: $(RUNTIME_SRC) $(RUNTIME_HEADERS) $(GENERATED) $(GFX_OBJECTS
 
 runtime: shader-tools $(OUT)/mk8d-native
 
-# Play from the work folder (no app package yet): saves, shader cache and the game slot go in $(WORK)/play. TOTK_INPUT_FILE
+# Play from the work folder (`make app` packages the app): saves, shader cache and the game slot go in $(WORK)/play. TOTK_INPUT_FILE
 # takes diagnostic commands ("shot <png>", "key <code> <ms>"; runtime/input.c).
 # DM_PRESENT_LINK_FALLBACK=1 (as Bayonetta 3's launcher): when macOS stops the display link for a window in front (seen after
 # the display woke up), presents go on without it instead of the picture freezing; the link is tried again later.
@@ -52,6 +52,15 @@ run: runtime
 	  TOTK_SHARED_FONTS="$(abspath $(WORK))/extracted/firmware/shared-fonts" TOTK_INPUT_FILE="$(PLAY)/commands.txt" \
 	  TOTK_GAME_SLOT_DIR="$(PLAY)/slot" TOTK_SLOT_OWNER=user TOTK_SLOT_PURPOSE=play TOTK_ROMFS_PATCHES=0 TOTK_ROMFS_PROOF_DIR="$(PLAY)" \
 	  ./build/mk8d-native rewritten/local boot
+
+# The app (scripts/package_mk8d_app.py): APFS clones of the work folder's runtime and game files, the launcher
+# (scripts/mk8d_app_launcher.c: `make run`'s environment, full screen, logs and save backups) and the icon build_mk8d.py
+# extracted. Saves and the shader cache go to DATA, seeded once from $(WORK)/play.
+APP ?= $(abspath $(WORK))/Mario Kart 8 Deluxe.app
+DATA ?= $(abspath $(WORK))/MK8D Data
+.PHONY: app
+app: runtime
+	"$(PY)" scripts/package_mk8d_app.py --work "$(WORK)" --app "$(APP)" --data "$(DATA)"
 
 probe: runtime
 	cd "$(WORK)" && ./build/mk8d-native rewritten/local probe
