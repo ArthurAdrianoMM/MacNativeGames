@@ -116,6 +116,18 @@ static void screenshot_image_orientation(int orientation) {
 static uint32_t pop_open_users(int32_t *count, void *handles, int32_t max) {
     (void)handles; (void)max; if (!count) runtime_fail("PopOpenUsers count pointer"); *count = 0; return 0;
 }
+/* Friends without a friends service (Mario Kart 8 Deluxe posts its presence from the menus, Time Trial reads the friend
+   list for ghosts): no friends, presence and play history accepted and kept nowhere, online play sessions accepted. The
+   play history registration key (0x40 bytes) is zeroed; it only goes back to AddPlayHistory here. Purely local presence
+   edits (Clear, SetAppValue, SetDescription) run as shipped. */
+static uint32_t no_friends(int *count, void *out, const void *user, int offset, int max, const void *filter) {
+    (void)out; (void)user; (void)offset; (void)max; (void)filter; if (!count) runtime_fail("GetFriendList count pointer"); *count = 0; return 0;
+}
+static uint32_t play_history_key(uint8_t *key, const void *user, uint8_t local) {
+    (void)user; (void)local; if (!key) runtime_fail("play history key pointer"); memset(key, 0, 0x40); return 0;
+}
+/* Play report transmission status: 0, nothing pending (reports are not sent from this host). */
+static uint32_t prepo_status(int32_t *status) { if (!status) runtime_fail("prepo status pointer"); *status = 0; return 0; }
 void *runtime_by3_override(const char *name) {
     static const struct { const char *name; void *fn; } entries[] = {
         {"_ZN2nn2oe13MuteRecordingEv", nop}, {"_ZN2nn2oe15UnmuteRecordingEv", nop},
@@ -139,6 +151,15 @@ void *runtime_by3_override(const char *name) {
         {"_ZN2nn7account44EnsureNetworkServiceAccountIdTokenCacheAsyncEPNS0_12AsyncContextERKNS0_10UserHandleE", nsa_unavailable},
         {"_ZN2nn7friends12UserPresence10InitializeERKNS_7account3UidE", ok},
         {"_ZN2nn7friends10InitializeEv", nop},
+        {"_ZN2nn7friends12UserPresence6CommitEv", ok},
+        {"_ZN2nn7friends13GetFriendListEPiPNS0_6FriendERKNS_7account3UidEiiRKNS0_12FriendFilterE", no_friends},
+        {"_ZN2nn7friends28DeclareOpenOnlinePlaySessionERKNS_7account3UidE", ok},
+        {"_ZN2nn7friends29DeclareCloseOnlinePlaySessionERKNS_7account3UidE", ok},
+        {"_ZN2nn7friends14AddPlayHistoryERKNS_7account3UidERKNS0_26PlayHistoryRegistrationKeyERKNS0_15InAppScreenNameESA_", ok},
+        {"_ZN2nn7friends29GetPlayHistoryRegistrationKeyEPNS0_26PlayHistoryRegistrationKeyERKNS_7account3UidEb", play_history_key},
+        {"_ZN2nn4nifm19SetLocalNetworkModeEb", nop},
+        {"_ZN2nn4nifm22GetCurrentIpConfigInfoEP7in_addrS2_S2_S2_S2_", nifm_unavailable},
+        {"_ZN2nn5prepo21GetTransmissionStatusEPNS0_18TransmissionStatusE", prepo_status},
         {"_ZN2nn4bcat10InitializeEv", nop},
         {"_ZN2nn4bcat25MountDeliveryCacheStorageEv", ok},
         {"_ZN2nn4bcat27UnmountDeliveryCacheStorageEv", nop},
