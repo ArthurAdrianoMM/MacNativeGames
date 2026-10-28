@@ -44,6 +44,20 @@ static uint32_t last_opened_user(Uid *out){if(!out)return 0x7c67;initialize();*o
 static void close_user(const UserHandle *handle){lock_acquire();if(!valid(handle))runtime_fail("invalid local account handle close");for(unsigned i=0;i<64;i++)if(tokens[i]==handle->token){tokens[i]=0;break;}lock_release();}
 static uint32_t existence(unsigned char *out,const Uid *uid){if(!out||!uid)return 0x7c67;initialize();*out=same(uid);return 0;}
 static uint32_t nickname(char *out,const Uid *uid){initialize();if(!out||!same(uid))return 0x7c67;memset(out,0,33);memcpy(out,"Local",5);return 0;}
+/* Mario Kart 8 Deluxe lists the users (all and open) and opens a user by its Uid. The Mac has one local user; it counts as
+   open while the game holds a handle to it. */
+static uint32_t list_users(int *count,Uid *out,int max,bool open_only){
+ if(!count||max<0||(max&&!out))return 0x7c67;initialize();lock_acquire();bool open=false;for(unsigned i=0;i<64;i++)if(tokens[i])open=true;lock_release();
+ int n=(!open_only||open)&&max>0;if(n)out[0]=local;for(int i=n;i<max;i++)out[i]=(Uid){0,0};*count=n;return 0;
+}
+static uint32_t list_all_users(int *count,Uid *out,int max){return list_users(count,out,max,false);}
+static uint32_t list_open_users(int *count,Uid *out,int max){return list_users(count,out,max,true);}
+static uint32_t open_user(UserHandle *out,const Uid *uid){if(!out)return 0x7c67;initialize();if(!same(uid))return 0x7c67;return preselected(out)?0:0x7c67;}
+/* The local user has no Nintendo Account linked: its cached account info is unavailable (2124-0032, network service account
+   unavailable). Mario Kart 8 Deluxe clears its copy of the account fields on any failure and goes on (main+0x860868). */
+static uint32_t cached_nintendo_account(void *info,const UserHandle *handle,void *buffer,unsigned long size){
+ (void)info;(void)buffer;(void)size;lock_acquire();bool ok=valid(handle);lock_release();if(!ok)return 0x7c67;return 0x407c;
+}
 void runtime_account_uid(uint64_t out[2]){initialize();out[0]=local.lo;out[1]=local.hi;}
 void *runtime_account_override(const char *name){
  static const struct{const char *name;void *fn;} entries[]={
@@ -51,6 +65,9 @@ void *runtime_account_override(const char *name){
  {"_ZN2nn7account19OpenPreselectedUserEPNS0_10UserHandleE",open_preselected},
  {"_ZN2nn7account17GetLastOpenedUserEPNS0_3UidE",last_opened_user},
  {"_ZN2nn7account9CloseUserERKNS0_10UserHandleE",close_user},{"_ZN2nn7account9GetUserIdEPNS0_3UidERKNS0_10UserHandleE",user_id},
- {"_ZN2nn7account16GetUserExistenceEPbRKNS0_3UidE",existence},{"_ZN2nn7account11GetNicknameEPNS0_8NicknameERKNS0_3UidE",nickname}};
+ {"_ZN2nn7account16GetUserExistenceEPbRKNS0_3UidE",existence},{"_ZN2nn7account11GetNicknameEPNS0_8NicknameERKNS0_3UidE",nickname},
+ {"_ZN2nn7account12ListAllUsersEPiPNS0_3UidEi",list_all_users},{"_ZN2nn7account13ListOpenUsersEPiPNS0_3UidEi",list_open_users},
+ {"_ZN2nn7account8OpenUserEPNS0_10UserHandleERKNS0_3UidE",open_user},
+ {"_ZN2nn7account29LoadCachedNintendoAccountInfoEPNS0_25CachedNintendoAccountInfoERKNS0_10UserHandleEPvm",cached_nintendo_account}};
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;
 }

@@ -111,7 +111,7 @@ static void push_open_users(void) {}
    null in this host. macOS captures are already oriented by the window system. */
 static void screenshot_image_orientation(int orientation) {
     static int reported;
-    if (!reported++) fprintf(stderr, "[odyssey-oe] screenshot image orientation request %d handled by macOS window\n", orientation);
+    if (!reported++) fprintf(stderr, "[mk8d-oe] screenshot image orientation request %d handled by macOS window\n", orientation);
 }
 static uint32_t pop_open_users(int32_t *count, void *handles, int32_t max) {
     (void)handles; (void)max; if (!count) runtime_fail("PopOpenUsers count pointer"); *count = 0; return 0;

@@ -129,6 +129,12 @@ static void vi_initialize(void){if(!metalLayer)runtime_fail("VI requires the nat
 static uint32_t vi_open(void **out){if(!viReady||!out)return 0xf601;*out=&displayIdentity;return 0;}
 static uint32_t vi_layer(void **out,void *display){if(!out||display!=&displayIdentity)return 0xf601;*out=&layerIdentity;return 0;}
 static uint32_t vi_window(void **out,void *layer){if(!out||layer!=&layerIdentity)return 0xf601;*out=front_metal_layer();return 0;}
+/* Mario Kart 8 Deluxe sets its layer's scaling mode (0 none, 1 freeze, 2 scale to the layer, 3 scale and crop, 4 preserve the
+   aspect ratio) once after CreateLayer. The present path always fits the game's picture to the view, so the mode is
+   only checked and logged. */
+static uint32_t vi_scaling(void *layer,unsigned mode){
+ if(layer!=&layerIdentity||mode>4)return 0xf601;fprintf(stderr,"[totk] VI layer scaling mode %u (the picture is fitted to the view)\n",mode);return 0;
+}
 static uint32_t vi_vsync(void *ev,void *display){
  if(!ev||display!=&displayIdentity)return 0xf601;hle_bind_system_event(ev,1);
  pthread_mutex_lock(&vsyncLock);if(vsyncCount>=16)runtime_fail("VI display event limit");vsyncEvents[vsyncCount++]=ev;pthread_mutex_unlock(&vsyncLock);return 0;
@@ -137,6 +143,7 @@ void *runtime_front_override(const char *name){
  static const struct{const char *name;void *fn;} entries[]={
  {"_ZN2nn2vi10InitializeEv",vi_initialize},{"_ZN2nn2vi18OpenDefaultDisplayEPPNS0_7DisplayE",vi_open},
  {"_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayE",vi_layer},{"_ZN2nn2vi15GetNativeWindowEPPvPNS0_5LayerE",vi_window},
- {"_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE",vi_vsync}};
+ {"_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE",vi_vsync},
+ {"_ZN2nn2vi19SetLayerScalingModeEPNS0_5LayerENS0_11ScalingModeE",vi_scaling}};
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;
 }

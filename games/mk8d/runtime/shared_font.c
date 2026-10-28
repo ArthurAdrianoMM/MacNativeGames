@@ -15,7 +15,7 @@ static pthread_once_t once=PTHREAD_ONCE_INIT;
 static void need(int c,const char *m){if(!c)runtime_fail(m);}
 static void load(void){
  /* Bayonetta 3: the NSPs do not carry the system fonts; scripts/prepare_runtime.py leaves the rows empty without them. */
- if(!rows[0].path[0])runtime_fail("the game asked for the system shared fonts: extract them from your own Switch firmware to Odyssey_build/extracted/firmware/shared-fonts (scripts/extract_shared_fonts.py) and run scripts/prepare_runtime.py again");
+ if(!rows[0].path[0])runtime_fail("the game asked for the system shared fonts: extract them from your own Switch firmware to <work>/extracted/firmware/shared-fonts (scripts/extract_shared_fonts.py) and run scripts/prepare_runtime.py again");
  uint64_t total=0;for(int i=0;i<SHARED_FONT_COUNT;i++)total+=rows[i].file_bytes;
  region=malloc(total);need(region!=NULL,"shared font memory");
  uint64_t at=0;
@@ -44,10 +44,22 @@ static int valid(int type){if(type<0||type>=SHARED_FONT_COUNT)runtime_fail("inva
 static int load_state(int type){valid(type);return 1;}   /* SharedFontLoadState_Loaded */
 static const void *address(int type){return region+offsets[valid(type)];}
 static size_t size(int type){return (size_t)rows[valid(type)].font_bytes;}
+/* Mario Kart 8 Deluxe requests the load and then takes the whole list at once. GetSharedFont (sdk 4.4.0, read from its code)
+   writes the total count, fills up to max entries of {type, address, size} (0x18 bytes each) and returns whether the
+   fonts are loaded. The list is the six fonts in type order for every language, as Ryujinx answers it. */
+typedef struct{uint32_t type,pad;const void *address;uint64_t size;} SharedFontData;
+static void request_load(int type){valid(type);}
+static int list_fonts(int *count,SharedFontData *out,int max,uint64_t language){
+ (void)language;if(!count||max<0||(max&&!out))runtime_fail("GetSharedFont: invalid arguments");pthread_once(&once,load);
+ *count=SHARED_FONT_COUNT;for(int i=0;i<max&&i<SHARED_FONT_COUNT;i++)out[i]=(SharedFontData){(uint32_t)i,0,region+offsets[i],rows[i].font_bytes};
+ return 1;
+}
 void *runtime_font_override(const char *name){
  static const struct{const char *name;void *fn;} entries[]={
   {"_ZN2nn2pl22GetSharedFontLoadStateENS0_14SharedFontTypeE",load_state},
   {"_ZN2nn2pl20GetSharedFontAddressENS0_14SharedFontTypeE",address},
-  {"_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE",size}};
+  {"_ZN2nn2pl17GetSharedFontSizeENS0_14SharedFontTypeE",size},
+  {"_ZN2nn2pl21RequestSharedFontLoadENS0_14SharedFontTypeE",request_load},
+  {"_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12LanguageCodeE",list_fonts}};
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;
 }

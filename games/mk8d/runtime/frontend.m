@@ -108,9 +108,9 @@ static int assume_focus(void){static int v=-1;if(v<0){const char *e=getenv("TOTK
 /* Keep the guest active when the macOS window loses key status. Native input is still cleared
    in windowDidResignKey so a held key cannot remain stuck while another app has focus. */
 int runtime_front_focus(void){return 1;}
-/* ODYSSEY_VSYNC_DIVIDE=N (task B1, measurement only; unset = 1, as before): signal the game's vsync events on every Nth
+/* MK8D_VSYNC_DIVIDE=N (task B1, measurement only; unset = 1, as before): signal the game's vsync events on every Nth
    display-link callback, e.g. 2 gives 60/s on a 120 Hz panel, to test whether game time depends on the vsync rate. */
-static unsigned vsync_divide(void){static unsigned v;if(!v){const char *e=getenv("ODYSSEY_VSYNC_DIVIDE");int n=e?atoi(e):1;v=n>1&&n<=8?(unsigned)n:1;}return v;}
+static unsigned vsync_divide(void){static unsigned v;if(!v){const char *e=getenv("MK8D_VSYNC_DIVIDE");int n=e?atoi(e):1;v=n>1&&n<=8?(unsigned)n:1;}return v;}
 static CVReturn vsync_callback(CVDisplayLinkRef link,const CVTimeStamp *now,const CVTimeStamp *output,CVOptionFlags flags,CVOptionFlags *out,void *ctx){
  (void)link;(void)now;(void)output;(void)flags;(void)out;(void)ctx;
  static unsigned tick;if(vsync_divide()>1&&tick++%vsync_divide())return kCVReturnSuccess;
@@ -230,7 +230,7 @@ static void front_sync_drawable(void){
  CGDisplayModeRef mode=display?CGDisplayCopyDisplayMode(display):NULL;
  double rate=mode?CGDisplayModeGetRefreshRate(mode):0;if(mode)CGDisplayModeRelease(mode);
  int hz=rate>0?(int)lround(rate):(int)screen.maximumFramesPerSecond;
- if(atomic_exchange(&frontDisplayHz,hz)!=hz)fprintf(stderr,"[odyssey-display] window screen %u: %d Hz\n",display,hz);
+ if(atomic_exchange(&frontDisplayHz,hz)!=hz)fprintf(stderr,"[mk8d-display] window screen %u: %d Hz\n",display,hz);
  if(displayLink&&display)CVDisplayLinkSetCurrentCGDisplay(displayLink,display);
  CGFloat s=window.backingScaleFactor>0?window.backingScaleFactor:1,ts=drawable_scale();CGSize px=CGSizeMake(round(v.bounds.size.width*s*ts),round(v.bounds.size.height*s*ts));
  if(px.width<1||px.height<1||CGSizeEqualToSize(metalLayer.drawableSize,px))return;
@@ -274,7 +274,7 @@ static int awakeHeld;
 static void front_update_awake(void){
  int want=!window_closing&&atomic_load(&windowVisible)==1&&atomic_load(&focused)&&!window.miniaturized;
  if(want==awakeHeld)return;
- if(want){if(IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep,kIOPMAssertionLevelOn,CFSTR("Super Mario Odyssey is being played"),&awakeAssertion)!=kIOReturnSuccess){fprintf(stderr,"[totk] 【红】display-sleep assertion could not be created\n");return;}}
+ if(want){if(IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep,kIOPMAssertionLevelOn,CFSTR("Mario Kart 8 Deluxe is being played"),&awakeAssertion)!=kIOReturnSuccess){fprintf(stderr,"[totk] 【红】display-sleep assertion could not be created\n");return;}}
  else IOPMAssertionRelease(awakeAssertion);
  awakeHeld=want;fprintf(stderr,"[totk] display sleep %s (frame %llu)\n",want?"held off while the game is visible":"allowed again",(unsigned long long)dm_nvn_frame_count());
 }
@@ -289,7 +289,7 @@ static void front_start_cursor_hiding(void){
 static TOTKWindowDelegate *windowDelegate;
 int runtime_front_window_visible(void){return atomic_load(&windowVisible);}
 void runtime_front_request_close(void){dispatch_async(dispatch_get_main_queue(), ^{[window performClose:nil];});}
-/* The data folder is the parent of TOTK_PROFILE_DIR: "Odyssey Data" for the app, whose launcher writes last-run.log there;
+/* The data folder is the parent of TOTK_PROFILE_DIR: "Mario Kart 8 Deluxe Data" for the app, whose launcher writes last-run.log there;
    a probe's save copy for agent runs, where there is no log and Show Log is disabled. */
 static NSURL *front_data_folder(void){const char *p=getenv("TOTK_PROFILE_DIR");return p&&*p?[[NSURL fileURLWithPath:@(p)] URLByDeletingLastPathComponent]:nil;}
 static NSURL *front_log_file(void){NSURL *d=front_data_folder();NSURL *f=[d URLByAppendingPathComponent:@"last-run.log"];return f&&[NSFileManager.defaultManager fileExistsAtPath:f.path]?f:nil;}
@@ -312,9 +312,9 @@ static void front_install_menu(void){
  menu_item(appMenu,TOTK_UI("显示日志","Show Log"),@selector(showLog:),@"",0,menuTarget);
  menu_item(appMenu,TOTK_UI("打开数据文件夹","Open Data Folder"),@selector(openDataFolder:),@"",0,menuTarget);
  [appMenu addItem:NSMenuItem.separatorItem];
- menu_item(appMenu,TOTK_UI("隐藏 Super Mario Odyssey","Hide Super Mario Odyssey"),@selector(hide:),@"h",NSEventModifierFlagCommand,NSApp);
+ menu_item(appMenu,TOTK_UI("隐藏 马力欧卡丁车8 豪华版","Hide Mario Kart 8 Deluxe"),@selector(hide:),@"h",NSEventModifierFlagCommand,NSApp);
  [appMenu addItem:NSMenuItem.separatorItem];
- menu_item(appMenu,TOTK_UI("退出 Super Mario Odyssey","Quit Super Mario Odyssey"),@selector(performClose:),@"q",NSEventModifierFlagCommand,window);
+ menu_item(appMenu,TOTK_UI("退出 马力欧卡丁车8 豪华版","Quit Mario Kart 8 Deluxe"),@selector(performClose:),@"q",NSEventModifierFlagCommand,window);
  NSMenuItem *windowItem=[NSMenuItem new];windowItem.submenu=windowMenu;[menu addItem:windowItem];
  menu_item(windowMenu,TOTK_UI("最小化","Minimize"),@selector(performMiniaturize:),@"m",NSEventModifierFlagCommand,window);
  menu_item(windowMenu,TOTK_UI("进入 / 退出全屏","Toggle Full Screen"),@selector(toggleFullScreen:),@"f",NSEventModifierFlagCommand|NSEventModifierFlagControl,window);
@@ -340,8 +340,8 @@ void runtime_front_run(void(*callback)(void)){
   /* An agent's test game (TOTK_SLOT_OWNER other than user) says so in its title: it plays a save copy and its script closes it. */
   const char *owner=getenv("TOTK_SLOT_OWNER"),*purpose=getenv("TOTK_SLOT_PURPOSE");
   /* the update the app was built from (the app launcher sets it; 1.3.0 and 1.4.1 share their executables) */
-  const char *version=getenv("ODYSSEY_GAME_VERSION");if(!version||!*version)version=TOTK_GAME_VERSION;
-  window.title=owner&&*owner&&strcmp(owner,"user")?[NSString stringWithFormat:@(TOTK_UI("测试局（%s）Ver. %s：%s — 存档副本，进度不会存进你的存档，脚本会自己关闭","Test session (%s) Ver. %s: %s — save copy, progress is not saved to your save, the script closes it")),owner,version,purpose&&*purpose?purpose:TOTK_UI("代理测试","agent test")]:[NSString stringWithFormat:@"Super Mario Odyssey Mac — Ver. %s",version];
+  const char *version=getenv("MK8D_GAME_VERSION");if(!version||!*version)version=TOTK_GAME_VERSION;
+  window.title=owner&&*owner&&strcmp(owner,"user")?[NSString stringWithFormat:@(TOTK_UI("测试局（%s）Ver. %s：%s — 存档副本，进度不会存进你的存档，脚本会自己关闭","Test session (%s) Ver. %s: %s — save copy, progress is not saved to your save, the script closes it")),owner,version,purpose&&*purpose?purpose:TOTK_UI("代理测试","agent test")]:[NSString stringWithFormat:@"Mario Kart 8 Deluxe Mac — Ver. %s",version];
   windowDelegate=[TOTKWindowDelegate new];window.delegate=windowDelegate;
   [NSNotificationCenter.defaultCenter addObserver:windowDelegate selector:@selector(screenParametersChanged:) name:NSApplicationDidChangeScreenParametersNotification object:nil];
   front_install_menu();front_start_cursor_hiding();
@@ -351,7 +351,7 @@ void runtime_front_run(void(*callback)(void)){
   metalLayer.framebufferOnly=NO;window.contentView.wantsLayer=YES;window.contentView.layer=metalLayer;
   bootOverlay=[[NSView alloc] initWithFrame:window.contentView.bounds];bootOverlay.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
   bootOverlay.wantsLayer=YES;bootOverlay.layer.backgroundColor=[NSColor colorWithCalibratedRed:0.035 green:0.075 blue:0.09 alpha:1].CGColor;
-  bootStage=[NSTextField labelWithString:@(TOTK_UI("正在启动 Super Mario Odyssey","Starting Super Mario Odyssey"))];
+  bootStage=[NSTextField labelWithString:@(TOTK_UI("正在启动 马力欧卡丁车8 豪华版","Starting Mario Kart 8 Deluxe"))];
   bootStage.font=[NSFont systemFontOfSize:25 weight:NSFontWeightSemibold];bootStage.textColor=NSColor.whiteColor;
   bootStage.alignment=NSTextAlignmentCenter;bootStage.frame=NSMakeRect(0,wh/2+20,ww,40);bootStage.autoresizingMask=NSViewWidthSizable|NSViewMinYMargin|NSViewMaxYMargin;
   bootDetail=[NSTextField labelWithString:@(TOTK_UI("正在准备游戏环境","Preparing the game environment"))];
@@ -375,7 +375,15 @@ void runtime_front_run(void(*callback)(void)){
   {const char *fs=getenv("BY3_FULLSCREEN");if(fs&&!strcmp(fs,"1"))dispatch_async(dispatch_get_main_queue(),^{if(!(window.styleMask&NSWindowStyleMaskFullScreen))[window toggleFullScreen:nil];});}
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC),dispatch_get_main_queue(),^{note_occlusion(" 3 s after opening");});
   atomic_store(&focused,1);
-  if(CVDisplayLinkCreateWithActiveCGDisplays(&displayLink)||CVDisplayLinkSetOutputCallback(displayLink,vsync_callback,NULL)||CVDisplayLinkStart(displayLink))runtime_fail("native display link initialization");
+  {CVReturn e;const char *step="create";   /* which call failed, and its CVReturn, in the log */
+   /* A process whose session lists no active displays (CGGetActiveDisplayList gives 0, seen on macOS 27.2 when started from
+      some terminals while its windows still show) gets kCVReturnInvalidArgument here: the link is then made for the
+      window's own screen, which front_sync_drawable points it at anyway. */
+   if((e=CVDisplayLinkCreateWithActiveCGDisplays(&displayLink))==kCVReturnInvalidArgument){
+    CGDirectDisplayID screen=[window.screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];if(!screen)screen=CGMainDisplayID();
+    fprintf(stderr,"[totk] no active display list (CVReturn %d): display link for screen %u\n",(int)e,screen);e=CVDisplayLinkCreateWithCGDisplay(screen,&displayLink);}
+   if(e||(step="callback",e=CVDisplayLinkSetOutputCallback(displayLink,vsync_callback,NULL))||(step="start",e=CVDisplayLinkStart(displayLink))){
+    fprintf(stderr,"[totk] display link %s failed: CVReturn %d\n",step,(int)e);runtime_fail("native display link initialization");}}
   front_sync_drawable();   /* the link exists now: point it at the window's screen (the call above came before it) */
   pthread_t guest;pthread_attr_t attr;pthread_attr_init(&attr);pthread_attr_setstacksize(&attr,8*1024*1024);int err=pthread_create(&guest,&attr,guest_main,(void *)callback);pthread_attr_destroy(&attr);if(err)runtime_fail("native game thread creation");
   [NSApp run];runtime_fail("native event loop returned unexpectedly");
@@ -476,6 +484,12 @@ static void vi_initialize(void){if(!metalLayer)runtime_fail("VI requires native 
 static uint32_t vi_open(void **out){if(!viReady||!out)return 0xf601;*out=&displayIdentity;return 0;}
 static uint32_t vi_layer(void **out,void *display){if(!out||display!=&displayIdentity)return 0xf601;*out=&layerIdentity;return 0;}
 static uint32_t vi_window(void **out,void *layer){if(!out||layer!=&layerIdentity)return 0xf601;*out=front_metal_layer();return 0;}
+/* Mario Kart 8 Deluxe sets its layer's scaling mode (0 none, 1 freeze, 2 scale to the layer, 3 scale and crop, 4 preserve the
+   aspect ratio) once after CreateLayer. The present path always fits the game's picture to the window, so the mode is
+   only checked and logged. */
+static uint32_t vi_scaling(void *layer,unsigned mode){
+ if(layer!=&layerIdentity||mode>4)return 0xf601;fprintf(stderr,"[totk] VI layer scaling mode %u (the picture is fitted to the window)\n",mode);return 0;
+}
 static uint32_t vi_vsync(void *ev,void *display){
  if(!ev||display!=&displayIdentity)return 0xf601;hle_bind_system_event(ev,1);
  pthread_mutex_lock(&vsyncLock);if(vsyncCount>=16)runtime_fail("VI display event limit");vsyncEvents[vsyncCount++]=ev;pthread_mutex_unlock(&vsyncLock);return 0;
@@ -484,6 +498,7 @@ void *runtime_front_override(const char *name){
  static const struct{const char *name;void *fn;} entries[]={
  {"_ZN2nn2vi10InitializeEv",vi_initialize},{"_ZN2nn2vi18OpenDefaultDisplayEPPNS0_7DisplayE",vi_open},
  {"_ZN2nn2vi11CreateLayerEPPNS0_5LayerEPNS0_7DisplayE",vi_layer},{"_ZN2nn2vi15GetNativeWindowEPPvPNS0_5LayerE",vi_window},
- {"_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE",vi_vsync}};
+ {"_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE",vi_vsync},
+ {"_ZN2nn2vi19SetLayerScalingModeEPNS0_5LayerENS0_11ScalingModeE",vi_scaling}};
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;
 }

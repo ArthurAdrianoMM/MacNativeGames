@@ -208,7 +208,7 @@ static void export_ios_text(const char *rewritten,const char *out) {
 #endif
 static void relocate(Module *m) {
  for(unsigned i=0;i<m->nreloc;i++) {
-  if(i%10000==0)fprintf(stderr,"[odyssey] relocate %s %u/%u\n",m->name,i,m->nreloc);
+  if(i%10000==0)fprintf(stderr,"[mk8d] relocate %s %u/%u\n",m->name,i,m->nreloc);
   const Reloc *r=&m->relocs[i];
   need(r->where>=m->data_off&&r->where+8<=m->key_off&&r->symbol<m->nsym,"relocation bounds");
   uintptr_t v;
@@ -226,7 +226,7 @@ static void relocate(Module *m) {
   }
   memcpy(m->base+r->where,&v,8);
  }
- fprintf(stderr,"[odyssey] relocated %s %u entries\n",m->name,m->nreloc);
+ fprintf(stderr,"[mk8d] relocated %s %u entries\n",m->name,m->nreloc);
 }
 static void verify_identity(int negative) {
  unsigned checked=0;void *original=required("nnMain");
@@ -411,7 +411,7 @@ static void boot(void) {
  fprintf(stderr,"[totk] game version %s\n", TOTK_GAME_VERSION);
  runtime_boot_status(TOTK_UI("启动游戏运行环境","Starting the game runtime"),TOTK_UI("连接游戏代码与 macOS 系统服务","Connecting the game code to macOS system services"));
  runtime_thread_init();uint32_t main_handle=svc_thread_main_init();
- fprintf(stderr,"[odyssey] ENTER original nn::init::Start sdk+0x296c50\n");
+ fprintf(stderr,"[mk8d] ENTER original nn::init::Start sdk+0x296c50\n");
  ((void(*)(uint64_t,uint64_t,void(*)(void),void(*)(void)))required("_ZN2nn4init5StartEmmPFvvES2_"))(main_handle,0,loader_ready,module_inits);
  runtime_fail("SDK Start unexpectedly returned");
 }

@@ -209,8 +209,21 @@ void runtime_guest_resident(uint64_t *resident,uint64_t *dirty,uint64_t *compres
 }
 static void host_diag_init(void) { fprintf(stderr,"[totk] native diagnostics initialized\n"); }
 static void host_oe_init(void) { fprintf(stderr,"[totk] application environment: local macOS process\n"); }
+/* The exit-request handling section defers a HOME-menu close while the game finishes a save; the Mac window waits for
+   save data itself (runtime_fs_save_busy), so the section is only counted. */
+static _Atomic int exit_section;
+static void host_oe_exit_enter(void) { atomic_fetch_add(&exit_section,1); }
+static void host_oe_exit_leave(void) { if(atomic_fetch_sub(&exit_section,1)<=0)runtime_fail("LeaveExitRequestHandlingSection without Enter"); }
+/* The display version of the running game (nn::oe::DisplayVersion: 16 chars). */
+static void host_oe_display_version(char *out) { if(!out)runtime_fail("GetDisplayVersion: null");memset(out,0,16);memcpy(out,TOTK_GAME_VERSION,strlen(TOTK_GAME_VERSION)); }
+/* A per-application device identifier that stays the same across launches: derived from the persistent local account. */
+void runtime_account_uid(uint64_t out[2]);
+static void host_oe_pseudo_device_id(uint64_t *out) { if(!out)runtime_fail("GetPseudoDeviceId: null");uint64_t u[2];runtime_account_uid(u);out[0]=u[0]^0x6d6b38642d646576ULL;out[1]=u[1]^0x6963652d69642d31ULL; }
 static void host_aoc_init(void) { fprintf(stderr,"[totk] add-on content: no DLC\n"); }
 static int host_aoc_count(void) { return 0; }
+/* The add-on content list never changes while the game runs: a bound event (nn::os::SystemEvent holds its SystemEventType
+   first) that is never signalled. Mario Kart 8 Deluxe asks for it at boot. */
+static void host_aoc_list_changed(void *event) { if(!event)runtime_fail("add-on content event: null"); hle_bind_system_event(event,0); }
 static int host_aoc_list(int *out,int offset,int count) {
  (void)out;if(offset<0||count<0)runtime_fail("invalid add-on content list range");return 0;
 }
@@ -314,8 +327,11 @@ void *runtime_override(const char *name) {
   {"_ZN2nn2oe15SetCpuBoostModeENS0_12CpuBoostModeE",cpu_boost},{"_ZN2nn2oe16GetOperationModeEv",operation_mode},{"_ZN2nn2oe18GetPerformanceModeEv",performance_mode},
   {"_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE",focus_mode},{"_ZN2nn2oe20GetCurrentFocusStateEv",focus_state},
   {"_ZN2nn2oe28SetResumeNotificationEnabledEb",resume_enabled},{"_ZN2nn2oe42SetOperationModeChangedNotificationEnabledEb",operation_enabled},{"_ZN2nn2oe44SetPerformanceModeChangedNotificationEnabledEb",performance_enabled},
-  {"nndiagStartup",host_diag_init},{"_ZN2nn2oe10InitializeEv",host_oe_init},{"_ZN2nn3aoc10InitializeEv",host_aoc_init},
+  {"nndiagStartup",host_diag_init},{"_ZN2nn2oe10InitializeEv",host_oe_init},
+  {"_ZN2nn2oe31EnterExitRequestHandlingSectionEv",host_oe_exit_enter},{"_ZN2nn2oe31LeaveExitRequestHandlingSectionEv",host_oe_exit_leave},
+  {"_ZN2nn2oe17GetDisplayVersionEPNS0_14DisplayVersionE",host_oe_display_version},{"_ZN2nn2oe17GetPseudoDeviceIdEPNS_4util4UuidE",host_oe_pseudo_device_id},{"_ZN2nn3aoc10InitializeEv",host_aoc_init},
   {"_ZN2nn3aoc17CountAddOnContentEv",host_aoc_count},{"_ZN2nn3aoc16ListAddOnContentEPiii",host_aoc_list},
+  {"_ZN2nn3aoc31GetAddOnContentListChangedEventEPNS_2os11SystemEventE",host_aoc_list_changed},
   {"_ZN2nn3err26InitializeContextWriterApiEv",host_error_init},{"_ZN2nn2fs24InitializeForApplicationEv",host_fs_init},
   {"_ZN2nn4pctl10InitializeEv",host_pctl_init},{"_ZN2nn4pctl26GetStereoVisionRestrictionEv",host_pctl_stereo_get},
   {"_ZN2nn4pctl26SetStereoVisionRestrictionEb",host_pctl_stereo_set},
@@ -324,6 +340,7 @@ void *runtime_override(const char *name) {
   {"_ZN2nn2pl11BeginVrModeEv",host_pl_begin_vr},{"_ZN2nn2pl9EndVrModeEv",host_pl_end_vr},
   {"_ZN2nn2oe23BeginBlockingHomeButtonEv",host_oe_home_block},{"_ZN2nn2oe21EndBlockingHomeButtonEv",host_oe_home_block},{"_ZN2nn4diag34InitializeApplicationAbortObserverEv",host_abort_init}};
  for(size_t i=0;i<sizeof(entries)/sizeof(entries[0]);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;
+ void *mii=runtime_mii_override(name);if(mii)return mii;
  void *by3=runtime_by3_override(name);if(by3)return by3;
  void *input=runtime_input_override(name);if(input)return input;void *font=runtime_font_override(name);if(font)return font;void *codec=runtime_codec_override(name);if(codec)return codec;void *movie=runtime_movie_override(name);if(movie)return movie;void *clock=runtime_time_override(name);if(clock)return clock;void *applet=runtime_applet_override(name);if(applet)return applet;void *swkbd=runtime_swkbd_override(name);if(swkbd)return swkbd;void *account=runtime_account_override(name);if(account)return account;void *fs=runtime_fs_override(name);if(fs)return fs;void *front=runtime_front_override(name);return front?front:runtime_gfx_override(name);
 }

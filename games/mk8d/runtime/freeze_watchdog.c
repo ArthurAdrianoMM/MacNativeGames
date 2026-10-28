@@ -1,5 +1,5 @@
 /* Freeze watchdog (task 0k, after smo-recomp's nvn_vk_watchdog.c): when the game stops producing frames, write what is
-   needed to see why, and nothing else. Off unless ODYSSEY_FREEZE_WATCHDOG is set: "1" = 5 s without a frame, "N" = N s.
+   needed to see why, and nothing else. Off unless MK8D_FREEZE_WATCHDOG is set: "1" = 5 s without a frame, "N" = N s.
    It never stops, resumes or changes the game; it only logs.
 
    Once the game has presented its first frame, a thread looks every 500 ms at the frames the game submitted
@@ -96,7 +96,7 @@ static void *fw_thread(void *unused) {
 }
 
 __attribute__((constructor)) static void fw_start(void) {
-    const char *e = getenv("ODYSSEY_FREEZE_WATCHDOG");
+    const char *e = getenv("MK8D_FREEZE_WATCHDOG");
     if (!e || !*e || !strcmp(e, "0")) return;
     double s = atof(e); g_threshold_s = s > 1 ? s : 5;
     const char *dir = getenv("ODYSSEY_FREEZE_DIR"), *profile = getenv("TOTK_PROFILE_DIR");

@@ -26,9 +26,10 @@
 #define R_INVALID_PATH 0x2ee602u
 #define R_OPEN_MODE 0x307402u
 #define R_APPEND_REQUIRED 0x2f5e02u
+#define R_UNSUPPORTED 0x313802u      /* UnsupportedOperation: a write to read-only system data */
 #include "game_version.h"
 #define TOTK_APPLICATION_ID GAME_TITLE_ID
-enum { M_FREE, M_SAVE, M_TEMP, M_CACHE };
+enum { M_FREE, M_SAVE, M_TEMP, M_CACHE, M_SYSTEM };   /* M_SYSTEM: read-only system data */
 enum { OPEN_READ = 1, OPEN_WRITE = 2, OPEN_APPEND = 4 };
 #define FILE_BASE 0x200000000ULL
 #define DIR_BASE 0x300000000ULL
@@ -43,7 +44,7 @@ static Mount mounts[16];
 static File files[NFILES];
 static Dir dirs[NDIRS];
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-static char profile[1024], save_root[1024];
+static char profile[1024], save_root[1024], device_root[1024];
 static pthread_once_t once = PTHREAD_ONCE_INIT;
 
 static void need(int c, const char *m) { if (!c) runtime_fail(m); }
@@ -77,6 +78,8 @@ static void init(void) {
     snprintf(p, sizeof p, "%s/save", profile); make_dir(p);
     need(snprintf(save_root, sizeof save_root, "%s/save/%016llx%016llx", profile, (unsigned long long)uid[1], (unsigned long long)uid[0]) < (int)sizeof save_root, "save path");
     make_dir(save_root);                                   /* launcher-style EnsureSaveData */
+    need(snprintf(device_root, sizeof device_root, "%s/save/device", profile) < (int)sizeof device_root, "device save path");
+    make_dir(device_root);
     snprintf(p, sizeof p, "%s/temp", profile); remove_tree(p); make_dir(p);
     snprintf(p, sizeof p, "%s/cache", profile); make_dir(p);
     fprintf(stderr, "[totk] host save storage: %s\n", save_root);
@@ -120,6 +123,7 @@ static unsigned host_path(const char *path, char *out, size_t cap) { return host
 /* A change to save data through a path (create, delete, rename, directories): marks the save as in progress. */
 static unsigned save_change_path(const char *path, char *out, size_t cap) {
     int kind = M_FREE; unsigned r = host_path_kind(path, out, cap, &kind);
+    if (!r && kind == M_SYSTEM) return R_UNSUPPORTED;
     if (!r && kind == M_SAVE) save_touched();
     return r;
 }
@@ -134,6 +138,29 @@ static unsigned mount_save(const char *name, const uint64_t *uid) {
 static unsigned char save_exists(uint64_t application, const uint64_t *uid) {
     ready(); uint64_t me[2]; runtime_account_uid(me);
     return application == TOTK_APPLICATION_ID && uid && uid[0] == me[0] && uid[1] == me[1];
+}
+/* IsSaveDataExisting(uid): this application's save for that account. */
+static unsigned char save_exists_own(const uint64_t *uid) { return save_exists(TOTK_APPLICATION_ID, uid); }
+/* Device save data (MountDeviceSaveData): one save for the console, not tied to an account. Mario Kart 8 Deluxe mounts it
+   as CommonSave beside UserSave (MountSaveData) and at boot deletes CommonSave:/userdata.dat, so the two must not share a
+   folder: in one folder that deleted the account's own userdata.dat and every boot asked for a Mii again (nxnative's MK8D
+   notes). It is a folder of its own, committed like the account save. */
+static unsigned mount_device_save(const char *name) { ready(); return mount_add(name, M_SAVE, device_root); }
+/* System data: only the MiiModel archive (0100000000000802), as the host's stand-in (mii_host.c) in <profile>/system-data,
+   mounted read-only. Mario Kart 8 Deluxe queries the cache size and mounts it at boot for the Mii heads it builds. The
+   host reads the folder directly, so the cache the game allocates is not used: one page. */
+#define MII_MODEL_DATA 0x0100000000000802ULL
+static unsigned system_data_dir(uint64_t id, char *out, size_t cap) {
+    ready(); if (id != MII_MODEL_DATA) { fprintf(stderr, "[totk] system data %016llx: not on this host\n", (unsigned long long)id); return R_TARGET_NOT_FOUND; }
+    need(snprintf(out, cap, "%s/system-data", profile) < (int)cap, "system data path"); make_dir(out);
+    need(snprintf(out, cap, "%s/system-data/%016llx", profile, (unsigned long long)id) < (int)cap, "system data path");
+    return runtime_mii_model_standin(out) ? 0 : R_TARGET_NOT_FOUND;
+}
+static unsigned query_system_data_cache(uint64_t *out, uint64_t id) {
+    char p[1100]; unsigned r = system_data_dir(id, p, sizeof p); if (r) return r; if (!out) return R_INVALID_ARGUMENT; *out = 0x1000; return 0;
+}
+static unsigned mount_system_data(const char *name, uint64_t id, void *cache, uint64_t size) {
+    (void)cache; (void)size; char p[1100]; unsigned r = system_data_dir(id, p, sizeof p); return r ? r : mount_add(name, M_SYSTEM, p);
 }
 /* Other titles' save data (e.g. data-link bonuses) is not present on this host. */
 static unsigned mount_save_ro(const char *name, uint64_t application, const uint64_t *uid) {
@@ -205,6 +232,7 @@ static unsigned open_file(uint64_t *out, const char *path, int mode) {
     if (!out || !(mode & (OPEN_READ | OPEN_WRITE)) || (mode & ~7)) return R_INVALID_ARGUMENT;
     char p[1100]; int kind = M_FREE; unsigned r = host_path_kind(path, p, sizeof p, &kind); if (r) return r;
     struct stat st; if (stat(p, &st)) return R_PATH_NOT_FOUND; if (!S_ISREG(st.st_mode)) return R_PATH_NOT_FOUND;
+    if (kind == M_SYSTEM && (mode & (OPEN_WRITE | OPEN_APPEND))) return R_UNSUPPORTED;
     int save_writer = kind == M_SAVE && (mode & OPEN_WRITE);
     int fd = open(p, (mode & OPEN_WRITE ? (mode & OPEN_READ ? O_RDWR : O_WRONLY) : O_RDONLY) | O_NOFOLLOW);
     if (fd < 0) return errno_result();
@@ -389,6 +417,10 @@ void *runtime_fs_host_override(const char *name) {
         {"_ZN2nn2fs13MountSaveDataEPKcRKNS_7account3UidE", mount_save},
         {"_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE", mount_save_ro},
         {"_ZN2nn2fs18IsSaveDataExistingENS_13ApplicationIdERKNS_7account3UidE", save_exists},
+        {"_ZN2nn2fs18IsSaveDataExistingERKNS_7account3UidE", save_exists_own},
+        {"_ZN2nn2fs19MountDeviceSaveDataEPKc", mount_device_save},
+        {"_ZN2nn2fs29QueryMountSystemDataCacheSizeEPmNS_3ncm12SystemDataIdE", query_system_data_cache},
+        {"_ZN2nn2fs15MountSystemDataEPKcNS_3ncm12SystemDataIdEPvm", mount_system_data},
         {"_ZN2nn2fs21MountTemporaryStorageEPKc", mount_temp}, {"_ZN2nn2fs7UnmountEPKc", unmount}, {"_ZN2nn2fs6CommitEPKc", commit},
         {"_ZN2nn2fs14CommitSaveDataEPKc", commit}, {"_ZN2nn2fs14EnsureSaveDataERKNS_7account3UidE", ensure_save},   /* Bayonetta 3 */
         {"_ZN2nn2fs18CreateCacheStorageEill", create_cache}, {"_ZN2nn2fs18DeleteCacheStorageEi", delete_cache},

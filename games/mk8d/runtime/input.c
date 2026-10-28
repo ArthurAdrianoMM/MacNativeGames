@@ -122,7 +122,7 @@ static uint32_t show_controller_support_arg(const void *arg){return show_control
    normal controller motion through the six-axis path in hid_feedback.c. */
 static uint32_t seven_axis_init(void *work,size_t size){
  if(!work||size<0x80000)runtime_fail("seven-axis sensor work buffer");
- fprintf(stderr,"[odyssey] console seven-axis sensor unavailable; controller motion remains separate\n");
+ fprintf(stderr,"[mk8d] console seven-axis sensor unavailable; controller motion remains separate\n");
  return 0;
 }
 /* Success, not void: VR Start (22 October) checks StartSevenSixAxisSensor's nn::Result and aborts on nonzero
@@ -130,9 +130,27 @@ static uint32_t seven_axis_init(void *work,size_t size){
 static uint32_t seven_axis_noop(void){return 0;}
 static bool seven_axis_at_rest(void){return true;}
 static int seven_axis_states(void *out,int count){(void)out;(void)count;return 0;}
-static void initialize_debug_pad(void){fprintf(stderr,"[odyssey] debug pad unavailable; normal controller remains active\n");}
+static void initialize_debug_pad(void){fprintf(stderr,"[mk8d] debug pad unavailable; normal controller remains active\n");}
 static void debug_pad_state(void *out){if(!out)runtime_fail("debug pad state output");memset(out,0,0x20);}
 static void joy_dual(const uint32_t *id){if(!id)runtime_fail("joy-dual controller id");}
+/* Joy-Con assignment (sdk 4.4.0 routes the public calls through nn::hid::detail, which is answered here so the SDK's own
+   callers are covered too). Mac controllers are whole controllers, so single / dual assignment, merging and swapping
+   change nothing; the mode asked for is kept per controller id and reported back (NpadJoyAssignmentMode 0 dual, 1 single). */
+static uint8_t joy_single[16];
+static void joy_mode(const uint32_t *id,int single){if(!id)runtime_fail("joy assignment controller id");if(*id<16)joy_single[*id]=(uint8_t)single;}
+static void joy_single_mode(const uint32_t *id){joy_mode(id,1);}
+static void joy_single_device(const uint32_t *id,int device){(void)device;joy_mode(id,1);}
+static void joy_merge(const uint32_t *a,const uint32_t *b){joy_mode(a,0);joy_mode(b,0);}
+static void joy_swap(const uint32_t *a,const uint32_t *b){if(!a||!b)runtime_fail("joy swap controller id");}
+static uint32_t joy_get(uint32_t *mode,const uint32_t *id){if(!mode||!id)runtime_fail("joy assignment output");*mode=*id<16?joy_single[*id]:0;return 0;}
+/* detail::GetTouchScreenStates<16>: the newest states first, as the hid shared memory holds them; the Mac has no touch
+   screen, so every state has no touches. Each entry gets its own sampling number, newest highest. */
+static uint32_t touch_history_16(int *count,uint8_t *out,int max){
+ if(!count||max<0||(max&&!out))runtime_fail("touch history output");int n=max<16?max:16;
+ pthread_mutex_lock(&inputLock);int64_t newest=++sample;pthread_mutex_unlock(&inputLock);
+ for(int i=0;i<n;i++){uint8_t *e=out+(size_t)i*(16+16*0x28);memset(e,0,16+16*0x28);int64_t k=newest-i;memcpy(e,&k,8);}
+ *count=n;return 0;
+}
 /* Vibration devices and the six-axis sensor: runtime/hid_feedback.c (none unless TOTK_RUMBLE=1 / TOTK_GYRO=1). */
 void *runtime_input_override(const char *name){
  void *feedback=runtime_hid_feedback_override(name);if(feedback)return feedback;
@@ -160,7 +178,11 @@ void *runtime_input_override(const char *name){
  {"_ZN2nn3hid27GetSevenSixAxisSensorStatesEPNS0_23SevenSixAxisSensorStateEi",seven_axis_states},
  {"_ZN2nn3hid18InitializeDebugPadEv",initialize_debug_pad},
  {"_ZN2nn3hid16GetDebugPadStateEPNS0_13DebugPadStateE",debug_pad_state},
- {"_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj",joy_dual}};
+ {"_ZN2nn3hid28SetNpadJoyAssignmentModeDualERKj",joy_dual},
+ {"_ZN2nn3hid6detail30SetNpadJoyAssignmentModeSingleERKj",joy_single_mode},{"_ZN2nn3hid6detail30SetNpadJoyAssignmentModeSingleERKjNS0_17NpadJoyDeviceTypeE",joy_single_device},
+ {"_ZN2nn3hid6detail23MergeSingleJoyAsDualJoyERKjS3_",joy_merge},{"_ZN2nn3hid6detail18SwapNpadAssignmentERKjS3_",joy_swap},
+ {"_ZN2nn3hid6detail20GetNpadJoyAssignmentEPNS0_21NpadJoyAssignmentModeERKj",joy_get},
+ {"_ZN2nn3hid6detail20GetTouchScreenStatesILm16EEENS_6ResultEPiPNS0_16TouchScreenStateIXT_EEEi",touch_history_16}};
  for(unsigned i=0;i<sizeof(entries)/sizeof(*entries);i++)if(!strcmp(name,entries[i].name))return entries[i].fn;return NULL;
 }
 

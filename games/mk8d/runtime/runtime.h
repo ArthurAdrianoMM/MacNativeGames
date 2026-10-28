@@ -121,6 +121,8 @@ void runtime_input_key(unsigned code,int down);
 void runtime_input_clear(void);
 int runtime_handheld_mode(void);   /* TOTK_OPERATION_MODE=handheld (runtime/services.c) */
 void *runtime_input_override(const char *name);
+void *runtime_mii_override(const char *name);   /* runtime/mii_host.c: nn::mii::Database and the Mii editor applet */
+int runtime_mii_model_standin(const char *dir);  /* runtime/mii_host.c: writes the MiiModel system data stand-in; 1 when present */
 void *runtime_by3_override(const char *name);   /* runtime/system_services.c: Bayonetta 3 network and system functions */
 typedef struct { uint64_t buttons; int32_t lx,ly,rx,ry; int connected; } RuntimeGamepadState;
 void runtime_gamepad_start(void);
