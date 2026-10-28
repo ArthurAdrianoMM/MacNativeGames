@@ -1,5 +1,5 @@
 // CPU-only probe of runtime/freeze_watchdog.c: fake frame counters advance, stop for 4 s, then advance again.
-// Expect (ODYSSEY_FREEZE_WATCHDOG=2): one "no frame" line, one thread dump, one GPU-state dump, a sample file, a recovery line.
+// Expect (MK8D_FREEZE_WATCHDOG=2): one "no frame" line, one thread dump, one GPU-state dump, a sample file, a recovery line.
 // build: xcrun clang -std=c11 -O1 -Wall -Wextra -Werror tests/freeze_watchdog/probe.c runtime/freeze_watchdog.c -o <out>
 #include <stdatomic.h>
 #include <stdint.h>

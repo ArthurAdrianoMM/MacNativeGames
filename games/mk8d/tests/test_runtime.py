@@ -1,9 +1,11 @@
-"""CPU regressions for Odyssey's post-merge reports on PR #256.
+"""CPU probes of the runtime and graphics layer Mario Kart 8 Deluxe runs on (copied from games/odyssey with them):
+audio routing, preemption, the shader cache and uniform handles, the freeze watchdog and the shader seed importer.
 
-Run with Xcode selected: python -m unittest discover -s games/odyssey/tests.
+Run with Xcode selected: python -m unittest discover -s games/mk8d/tests.
 No game files, save data, translator process or audio device are required.
 """
 from pathlib import Path
+import os
 import platform
 import subprocess
 import sys
@@ -15,9 +17,9 @@ NVN = GAME / "third_party/d2r_gfx/gfx/nvn"
 
 
 @unittest.skipUnless(sys.platform == "darwin" and platform.machine() == "arm64", "Apple ARM64 runtime")
-class OdysseyRegressions(unittest.TestCase):
+class RuntimeProbes(unittest.TestCase):
     def run_probe(self, sources, flags=(), arguments=((),)):
-        with tempfile.TemporaryDirectory(prefix="odyssey-regression-") as folder:
+        with tempfile.TemporaryDirectory(prefix="mk8d-regression-") as folder:
             binary = Path(folder) / "probe"
             build = subprocess.run([
                 "xcrun", "clang", "-std=gnu11", "-O1", "-g", "-Wall", "-Wextra",
@@ -41,9 +43,28 @@ class OdysseyRegressions(unittest.TestCase):
                        ["-Werror"], [("priority",), ("starve",), ("host",)])
 
     def test_shader_cache_and_uniform_reflection(self):
-        with tempfile.TemporaryDirectory(prefix="odyssey-shaders-") as folder:
+        with tempfile.TemporaryDirectory(prefix="mk8d-shaders-") as folder:
             self.run_probe([GAME / "tests/shader_regressions/probe.m", NVN / "nvn_refl.m"],
                            ["-fobjc-arc", "-framework", "Foundation", "-framework", "Metal"], [(folder,)])
+
+    def test_freeze_watchdog_logs_dumps_and_recovers(self):
+        with tempfile.TemporaryDirectory(prefix="mk8d-watchdog-") as folder:
+            binary = Path(folder) / "probe"
+            build = subprocess.run(["xcrun", "clang", "-std=c11", "-O1", "-Wall", "-Wextra", "-Werror",
+                                    str(GAME / "tests/freeze_watchdog/probe.c"), str(GAME / "runtime/freeze_watchdog.c"),
+                                    "-o", str(binary)], capture_output=True, text=True, timeout=120)
+            self.assertEqual(build.returncode, 0, build.stdout + build.stderr)
+            result = subprocess.run([str(binary)], cwd=folder, capture_output=True, text=True, timeout=30,
+                                    env={**os.environ, "MK8D_FREEZE_WATCHDOG": "2", "ODYSSEY_FREEZE_DIR": folder + "/dumps"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("frames moved again", result.stderr)
+            self.assertIn("runtime_dump_threads called", result.stdout + result.stderr)
+
+    def test_shader_seed_import(self):
+        with tempfile.TemporaryDirectory(prefix="mk8d-seed-") as folder:
+            self.run_probe([GAME / "tests/shader_seed_import/probe.m"],
+                           ["-fobjc-arc", "-Werror", "-Wno-unused-function", "-I" + str(NVN), "-framework", "Foundation"],
+                           [(folder,)])
 
     def test_uniform_handle_replay_reads(self):
         # Compile the actual replay helper with a tiny pending-write reader. This keeps
@@ -78,7 +99,7 @@ int main(void) {
     return 0;
 }
 '''.replace("HELPER", helper)
-        with tempfile.TemporaryDirectory(prefix="odyssey-handles-") as folder:
+        with tempfile.TemporaryDirectory(prefix="mk8d-handles-") as folder:
             path = Path(folder) / "probe.c"
             path.write_text(probe)
             self.run_probe([path], ["-I" + str(NVN), "-Werror", "-fsanitize=undefined", "-fno-sanitize-recover=all"])
