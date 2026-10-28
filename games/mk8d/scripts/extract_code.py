@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract and verify Super Mario Odyssey ExeFS from a local XCI/NSP."""
+"""Extract and verify Mario Kart 8 Deluxe ExeFS from a local XCI/NSP."""
 import argparse
 import hashlib
 import importlib.util
@@ -10,12 +10,12 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers import modes
 
+from mk8d import TITLE
+
 GENERIC = Path(__file__).resolve().parents[1] / 'third_party/totk-scripts/extract_exefs.py'
 spec = importlib.util.spec_from_file_location('generic_exefs', GENERIC)
 ex = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ex)
-
-TITLE = '0100000000010000'
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
             is_update = any(header[0x400 + i * 512 + 4] == 4 for i in range(4))
             if is_update == (args.program == 'update'):
                 programs.append((record, header))
-        ex.require(len(programs) == 1, f'Expected exactly one Odyssey {args.program} Program NCA')
+        ex.require(len(programs) == 1, f'Expected exactly one Mario Kart 8 Deluxe {args.program} Program NCA')
         record, header = programs[0]
         key = ex.nca_ctr_key(header, keys, tickets)
         for i in range(4):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify Odyssey NSO segments and inventory imports using the existing analyzer.
+"""Verify Mario Kart 8 Deluxe NSO segments and inventory imports using the existing analyzer.
 
 Uses the local liblz4 when Python's lz4 wheel is unavailable. Generated ELFs are
 analysis carriers and cannot be launched as macOS programs.

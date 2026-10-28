@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify and merge Odyssey base AES-CTR RomFS with its BKTR update.
+"""Verify and merge the Mario Kart 8 Deluxe base AES-CTR RomFS with its BKTR update.
 
 Game data and keys remain local. The update IVFC authenticates every output block.
 """
@@ -14,6 +14,7 @@ sys.path.insert(0, str(HERE / 'third_party/by3-scripts'))
 from extract_exefs import (load_keys, container_entries, common_tickets,
                            nca_inventory, nca_ctr_key, require)
 from extract_romfs import index_romfs
+from mk8d import TITLE
 
 spec = importlib.util.spec_from_file_location('by3_merge_romfs', HERE / 'third_party/by3-scripts/merge_romfs.py')
 by3_merge = importlib.util.module_from_spec(spec)
@@ -36,7 +37,7 @@ class DirectBase:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('game', type=Path, help='Local combined Odyssey XCI or NSP')
+    parser.add_argument('game', type=Path, help='Local combined base + update NSP (scripts/merge_nsp.py) or XCI')
     parser.add_argument('--keys', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
@@ -45,7 +46,7 @@ def main():
     with args.game.open('rb') as f:
         _, entries = container_entries(f, args.game.stat().st_size)
         records = nca_inventory(f, entries, keys)
-        programs = [(r, h) for r, h in records if r['content_type'] == 0 and r['title_id'] == '0100000000010000']
+        programs = [(r, h) for r, h in records if r['content_type'] == 0 and r['title_id'] == TITLE]
         require(len(programs) == 2, 'Expected exactly one base and one update Program NCA')
         sections = [(r, h, romfs_section(h)) for r, h in programs]
         base_items = [(r, h, s) for r, h, s in sections if s[2][4] == 3]

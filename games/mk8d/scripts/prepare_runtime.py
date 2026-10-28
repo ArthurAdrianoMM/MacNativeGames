@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bind Odyssey's native loader to the verified local executable rewrite.
+"""Bind Mario Kart 8 Deluxe's native loader to the verified local executable rewrite.
 
 Writes runtime tables and the index of the verified merged RomFS.
 """
@@ -11,11 +11,12 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(HERE.parent / 'by3/third_party/d2r'))
+sys.path.insert(0, str(HERE / 'third_party/d2r'))
 from relr import decode_relr
+from mk8d import expected
 
 VERSION = 'local'
-EXPECTED = json.loads((HERE / 'assets/expected-local-update.json').read_text())
+EXPECTED = expected()
 
 
 def sha(path):
@@ -178,7 +179,7 @@ def shared_fonts_config(work, out):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--work', type=Path, default=HERE / 'Odyssey_build')
+    parser.add_argument('--work', type=Path, required=True)
     work = parser.parse_args().work.resolve()
     out = work / 'build'
     out.mkdir(parents=True, exist_ok=True)

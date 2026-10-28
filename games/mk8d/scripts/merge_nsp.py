@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Join a base-game NSP and a separate update NSP into one NSP (PFS0), the single game file the build reads.
 
-    python3 scripts/merge_nsp.py BASE.nsp UPDATE.nsp --output Odyssey_build/input/odyssey.nsp
+    python3 scripts/merge_nsp.py BASE.nsp UPDATE.nsp --output <work>/input/mk8d.nsp
 
 Every entry of both files is copied unchanged (NCAs, tickets, certificates); a name both files carry must hold the same
 bytes. Nothing is decrypted, and no keys are needed. The output is written next to itself and renamed when complete.

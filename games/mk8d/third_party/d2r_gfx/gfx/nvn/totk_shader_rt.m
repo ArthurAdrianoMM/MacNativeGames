@@ -225,7 +225,7 @@ static int rt_async(void) {
     return 0;
 #else
     static int v = -1;
-#ifdef GAME_ODYSSEY   /* default on: without it the post-intro load stops presenting (22 October); TOTK_SHADER_ASYNC=0 for the old path */
+#ifdef GAME_MK8D   /* default on: without it the post-intro load stops presenting (22 October); TOTK_SHADER_ASYNC=0 for the old path */
     if (v < 0) { const char *e = getenv("TOTK_SHADER_ASYNC"); v = !e || atoi(e) > 0; }
 #else
     if (v < 0) { const char *e = getenv("TOTK_SHADER_ASYNC"); v = e && atoi(e) > 0; }

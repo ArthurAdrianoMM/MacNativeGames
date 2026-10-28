@@ -151,7 +151,7 @@ NVN(nvnDeviceGetProcAddress, PFNNVNGENERICFUNCPTRPROC, const NVNdevice *d, const
 // 设备属性：Tegra X1 实测值（nnheaders nvn_DeviceConstantsNX.h，在 SMO 上逐项调 nvnDeviceGetInteger 得到）
 // Device properties: values measured on Tegra X1 (nnheaders nvn_DeviceConstantsNX.h, obtained by calling nvnDeviceGetInteger item by item on SMO)
 static const int g_devinfo[] = {
-#if defined(GAME_BOTW) || defined(GAME_ODYSSEY)
+#if defined(GAME_BOTW) || defined(GAME_MK8D)
     [0x00] = 53, [0x01] = 311,  // Odyssey 1.3.0 main+0x9414c4 checks 53; +0x9414d0 requires minor >= 311.
 #else
     [0x00] = 55, [0x01] = 15,   // Experimental ABI target: TOTK main+e9d614 requires major 55, minor >= 15. Unsupported functions stop.
@@ -208,7 +208,7 @@ NVN(nvnDeviceInstallDebugCallback, void, NVNdevice *d, const PFNNVNDEBUGCALLBACK
     dev_t_ *o = (dev_t_ *)d; o->dbg_cb = B(enable) ? (void *)cb : NULL; o->dbg_data = data;
 }
 NVN(nvnDeviceSetWindowOriginMode, void, NVNdevice *d, NVNwindowOriginMode m) { ((dev_t_ *)d)->origin = m; LOG("[nvn] 窗口原点 %s", m ? "左上（同 D3D / Metal）" : "左下（GL）"); }
-#if defined(GAME_BOTW) || defined(GAME_ODYSSEY)
+#if defined(GAME_BOTW) || defined(GAME_MK8D)
 /* NVN's default depth mode is NEAR_IS_MINUS_W (enum value 0, the OpenGL convention): a device the game never calls
    nvnDeviceSetDepthMode on keeps it. TOTK sets it explicitly; Breath of the Wild never does, and its full-screen copy
    to the swapchain has clip z = -1 (the near plane), which the 0..w convention clipped away: the window stayed magenta
@@ -2506,7 +2506,7 @@ NVN(nvnWindowAcquireTexture, NVNwindowAcquireTextureResult, NVNwindow *w, NVNsyn
     totk_tl(TL_ACQ_OUT, (uint64_t)*idx, 0);
     return NVN_WINDOW_ACQUIRE_TEXTURE_RESULT_SUCCESS;
 }
-#if defined(GAME_BOTW) || defined(GAME_ODYSSEY)
+#if defined(GAME_BOTW) || defined(GAME_MK8D)
 /* NVN 53 (also called by Odyssey 1.3.0): the queue-side acquire. The same wait as nvnWindowAcquireTexture without a
    sync: it returns once the texture may be drawn into, and every later GPU use of it is ordered after the present copy on
    the one Metal queue. */

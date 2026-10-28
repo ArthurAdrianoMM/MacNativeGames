@@ -1,4 +1,4 @@
-# User-provided game material and local build results must stay out of source control.
+# Game files, keys and build results stay out of source control (build into a work folder outside the checkout).
 *.xci
 *.nsp
 *.nsz

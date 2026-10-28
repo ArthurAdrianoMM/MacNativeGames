@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Inspect an Odyssey XCI/NSP without extracting game content or printing keys."""
+"""Inspect a Mario Kart 8 Deluxe XCI/NSP without extracting game content or printing keys."""
 
 import argparse
 import sys
 from collections import Counter
 from pathlib import Path
 
-BASE_TITLE = "0100000000010000"
-UPDATE_TITLE = "0100000000010800"
+from mk8d import AOC_TITLE, TITLE as BASE_TITLE, UPDATE_TITLE
 
 
 def inspect(game: Path, keys_path: Path) -> int:
@@ -39,17 +38,17 @@ def inspect(game: Path, keys_path: Path) -> int:
     print(f"Container: {kind.upper()}")
     print(f"NCA files: {len(records)}")
     for title_id, count in sorted(ids.items()):
-        label = " (Odyssey base)" if title_id == BASE_TITLE else " (Odyssey update)" if title_id == UPDATE_TITLE else ""
+        label = {BASE_TITLE: " (base / program)", UPDATE_TITLE: " (update)", AOC_TITLE: " (Booster Course Pass)"}.get(title_id, "")
         print(f"Title ID: {title_id}{label}; NCA count: {count}")
     if BASE_TITLE not in ids and UPDATE_TITLE not in ids:
-        print("This container does not contain the expected Odyssey title ID.", file=sys.stderr)
+        print("This container does not contain the expected Mario Kart 8 Deluxe title ID.", file=sys.stderr)
         return 1
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("game", type=Path, help="Odyssey XCI or NSP file")
+    parser.add_argument("game", type=Path, help="Mario Kart 8 Deluxe XCI or NSP file")
     parser.add_argument("--keys", type=Path, required=True, help="prod.keys from your own Switch")
     args = parser.parse_args()
     return inspect(args.game, args.keys)
