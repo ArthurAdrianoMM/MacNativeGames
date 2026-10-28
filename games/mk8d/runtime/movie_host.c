@@ -27,7 +27,11 @@
    type 1 ("video/avc"), which aborted in NvMMLiteOpenBlock -> NvRmChannelOpen -> NvOsDrvOpen right after the skipped
    intro. Type 1 in buffer mode runs here on VideoToolbox: SPS / PPS come from the format's csd-0 / csd-1 or from the
    stream, samples may be Annex B or length-prefixed, and decoded pictures wait in `held` until they can leave in
-   presentation order (AVC_REORDER pictures behind, all at end of stream). */
+   presentation order (AVC_REORDER pictures behind, all at end of stream).
+   Mario Kart 8 Deluxe (2026-10-28): its menu previews are segments of one H.264 movie (512x608, 60 fps) played by one
+   decoder, built with sdk 4.4.0's three-argument constructor. A screen change seeks inside the movie without Flush (the
+   next input's time jumps, e.g. 10 s -> 144 s for the cc select), and the menu waits for the new position's first frame:
+   a time jump above PTS_JUMP_US drops what the game has not been given and restarts the pacing clock. */
 #include "runtime.h"
 #include "movie_host.h"
 #include <stdatomic.h>
@@ -54,6 +58,7 @@ void movie_host_tick(void) {}
 enum { IN_BUFS = 4, IN_CAP = 2 << 20, OUT_BUFS = 8, MAX_MOVIES = 16 };
 enum { TYPE_AVC = 1, TYPE_VP9 = 3, MODE_BUFFER = 1, FORMAT_NV12 = 4, FLAG_EOS = 4 };
 enum { AVC_HELD = 24, AVC_REORDER = 4, AVC_PARAM = 512 };
+enum { PTS_JUMP_US = 1000000 };   /* a time step this large between frames is a seek or a loop, not decode order */
 enum { ST_OK = 0, ST_ERROR = 0x1000, ST_NULL = 0x100b, ST_NOT_READY = 0x100c, ST_NO_OUTPUT = 0x100e, ST_NO_INPUT = 0x1011,
        ST_UNSUPPORTED = 0x2001, ST_NOT_CONFIGURED = 0x2002 };
 enum { EV_INPUT, EV_OUTPUT, EV_FORMAT, EV_ERROR };
@@ -77,6 +82,8 @@ typedef struct {
     Ready ready[OUT_BUFS]; int nready;
     Ready decoded[OUT_BUFS]; int ndecoded;   /* paced: decoded, not due yet */
     uint64_t t0; int64_t pts0;               /* paced: host time and presentation time of the first frame handed over */
+    int64_t last_out;                        /* paced: presentation time of the last frame handed over */
+    int64_t last_in; int has_in;             /* H.264: time of the last input decoded since Configure / Flush */
     uint64_t frames, decode_ns, errors, dropped;
     pthread_mutex_t mu;
 } Movie;
@@ -103,9 +110,10 @@ static const char *const NAMES[MOVIE_ENTRIES] = {
     "_ZN5movie7Decoder15GetOutputBufferEiPNS_6BufferEPNS_9MediaDataE", "_ZN5movie7Decoder21GetOutputBufferFormatEiPNS_9MediaDataE"};
 
 #define LOG(...) do { fprintf(stderr, "[movie] " __VA_ARGS__); fputc('\n', stderr); } while (0)
-/* TOTK_MOVIE_TRACE=1 (diagnostics, off by default): the first 400 calls of each decoder step, with their results. */
-static int trace_on(void) { static int v = -1; if (v < 0) v = getenv("TOTK_MOVIE_TRACE") != NULL; return v; }
-#define TRACE(step, ...) do { static _Atomic int n_; if (trace_on() && atomic_fetch_add(&n_, 1) < 400) { fprintf(stderr, "[movie-trace] " step ": " __VA_ARGS__); fputc('\n', stderr); } } while (0)
+/* TOTK_MOVIE_TRACE=1 (diagnostics, off by default): the first 400 calls of each decoder step, with their results;
+   TOTK_MOVIE_TRACE=<n> above 1 logs the first n. */
+static int trace_cap(void) { static int v = -1; if (v < 0) { const char *e = getenv("TOTK_MOVIE_TRACE"); v = !e ? 0 : atoi(e) > 1 ? atoi(e) : 400; } return v; }
+#define TRACE(step, ...) do { static _Atomic int n_; if (trace_cap() && atomic_fetch_add(&n_, 1) < trace_cap()) { fprintf(stderr, "[movie-trace] " step ": " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 static uint64_t now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
 static void need_symbol(void **slot, const char *name) {
@@ -188,8 +196,12 @@ static void release_due(Movie *m, Signals *s, uint64_t now) {
     if (!m->ndecoded) return;
     Ready d = m->decoded[0];
     if (!(d.flags & FLAG_EOS)) {
+        /* A seek without Flush (MK8D's menus play each preview as a segment of one movie) or a loop: count from this
+           frame, or the new position's frames were due minutes later and the menu waited for them for good. */
+        if (m->t0 && (d.time < m->last_out || d.time - m->last_out > PTS_JUMP_US)) m->t0 = 0;
         if (!m->t0) { m->t0 = now; m->pts0 = d.time; }
         if (now < due_at(m, &d)) return;
+        m->last_out = d.time;
     }
     memmove(m->decoded, m->decoded + 1, (size_t)--m->ndecoded * sizeof m->decoded[0]);
     m->ready[m->nready++] = d; note(m, s, EV_OUTPUT);
@@ -321,6 +333,22 @@ static void avc_emit(Movie *m, Signals *s, int keep) {
 }
 static int avc_decode_one(Movie *m, Signals *s, Pending *p) {
     if (p->size > 0 && !p->decoded) {
+        /* A jump in input time is a seek without Flush (MK8D's menus play each preview as a segment of one movie): the
+           pictures of the old position the game has not been given yet are dropped, as a Flush would. The hardware decoder has next to nothing in flight there; here up to 28 pictures
+           were, and handed over first they went out of order with the new ones (a later position's stayed held for
+           good) or set the player's clock to the old position, so the new position never showed. */
+        int64_t gap = p->time - m->last_in;
+        if (m->has_in && (gap < -PTS_JUMP_US || gap > PTS_JUMP_US)) {
+            if (m->vt) VTDecompressionSessionWaitForAsynchronousFrames(m->vt);
+            TRACE("seek", "input %lld us after %lld us: %d held and %d paced pictures dropped", (long long)p->time, (long long)m->last_in, m->nheld, m->ndecoded);
+            avc_drop_held(m);
+            for (int i = 0; i < m->ndecoded; i++) m->out_held[m->decoded[i].index] = 0;
+            m->dropped += (uint64_t)m->ndecoded; m->ndecoded = 0; m->t0 = 0;
+        }
+        /* Held pictures go to free output slots first: an input waiting here is only retried when the game releases a
+           slot, and returning before this emit left the slot empty (MK8D's menu previews stopped after 8 frames, and
+           the menu waited for the player for good). */
+        if (m->nheld >= AVC_HELD - 4) avc_emit(m, s, AVC_REORDER);
         if (m->nheld >= AVC_HELD - 4) return 0;   /* wait until the game takes pictures */
         uint64_t t0 = now_ns();
         m->nsample = 0; avc_parse(m, m->in[p->index] + p->offset, (size_t)p->size);
@@ -334,7 +362,7 @@ static int avc_decode_one(Movie *m, Signals *s, Pending *p) {
             if (sample) CFRelease(sample);
             if (block) CFRelease(block);
         } else if (m->nsample && ++m->errors <= 4) LOG("【红】H.264 sample at %lld us before its parameter sets: skipped", (long long)p->time);
-        p->decoded = 1; m->decode_ns += now_ns() - t0;
+        p->decoded = 1; m->last_in = p->time; m->has_in = 1; m->decode_ns += now_ns() - t0;
     }
     int eos = p->flags & FLAG_EOS && !m->eos_in;
     if (eos && m->vt) VTDecompressionSessionWaitForAsynchronousFrames(m->vt);
@@ -399,7 +427,7 @@ static void release_codec(Movie *m) {
 }
 static void reset_queues(Movie *m) {
     m->nin_free = 0; for (int i = 0; i < IN_BUFS; i++) m->in_free[m->nin_free++] = i;
-    memset(m->out_held, 0, sizeof m->out_held); m->npending = m->nready = m->ndecoded = 0; m->eos_in = 0; m->t0 = 0;
+    memset(m->out_held, 0, sizeof m->out_held); m->npending = m->nready = m->ndecoded = 0; m->eos_in = 0; m->t0 = 0; m->has_in = 0;
 }
 
 /* ---- entries ---- */
@@ -626,6 +654,7 @@ static int h_release_output(void *obj, int index) {
         for (int i = 0; i < m->ndecoded; i++) queued |= m->decoded[i].index == index;
         if (!queued) { m->out_held[index] = 0; if (m->codec == TYPE_AVC && !m->npending) avc_emit(m, &s, AVC_REORDER); drain_pending(m, &s); st = ST_OK; }
     }
+    TRACE("release output", "index %d status %d, %d held, %d pending", index, st, m->nheld, m->npending);
     pthread_mutex_unlock(&m->mu); fire(&s);
     return st;
 }
