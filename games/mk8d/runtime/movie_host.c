@@ -30,6 +30,7 @@
    presentation order (AVC_REORDER pictures behind, all at end of stream). */
 #include "runtime.h"
 #include "movie_host.h"
+#include <stdatomic.h>
 #include <arm_neon.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -102,6 +103,9 @@ static const char *const NAMES[MOVIE_ENTRIES] = {
     "_ZN5movie7Decoder15GetOutputBufferEiPNS_6BufferEPNS_9MediaDataE", "_ZN5movie7Decoder21GetOutputBufferFormatEiPNS_9MediaDataE"};
 
 #define LOG(...) do { fprintf(stderr, "[movie] " __VA_ARGS__); fputc('\n', stderr); } while (0)
+/* TOTK_MOVIE_TRACE=1 (diagnostics, off by default): the first 400 calls of each decoder step, with their results. */
+static int trace_on(void) { static int v = -1; if (v < 0) v = getenv("TOTK_MOVIE_TRACE") != NULL; return v; }
+#define TRACE(step, ...) do { static _Atomic int n_; if (trace_on() && atomic_fetch_add(&n_, 1) < 400) { fprintf(stderr, "[movie-trace] " step ": " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 static uint64_t now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
 
 static void need_symbol(void **slot, const char *name) {
@@ -269,6 +273,7 @@ static void avc_output(void *refcon, void *frame, OSStatus st, VTDecodeInfoFlags
     if (st != noErr || !img) { if (++m->errors <= 4) LOG("【红】H.264 picture not decoded (VideoToolbox %d)", (int)st); return; }
     if (m->nheld == AVC_HELD) { if (++m->errors <= 4) LOG("【红】H.264 reorder queue full: picture dropped"); return; }
     m->held[m->nheld++] = (Held){CVPixelBufferRetain(img), pts.value};
+    TRACE("vt picture", "pts %lld, %d held", (long long)pts.value, m->nheld);
 }
 static int avc_session(Movie *m) {
     if (!m->params_new && m->vt) return 1;
@@ -427,6 +432,7 @@ static void h_ctor3(void *obj, int type, int format, int mode) {
     ((ctor3_fn)orig)(obj, type, format, mode);
 }
 static void destroy(void *obj) {
+    TRACE("destroy", "decoder %p", obj);
     pthread_mutex_lock(&g_lock); Movie *m = NULL;
     for (int i = 0; i < MAX_MOVIES; i++) if (g_movies[i] && g_movies[i]->guest == obj) { m = g_movies[i]; g_movies[i] = NULL; }
     if (m) { pthread_mutex_lock(&m->mu); pthread_mutex_unlock(&m->mu); }   /* wait for an operation in progress (movie_host_tick) */
@@ -443,6 +449,7 @@ static void h_d0(void *obj) { if (find(obj)) destroy(obj); ((obj_fn)G.orig[MOVIE
 
 typedef int (*md_fn)(void *, void *);
 static int h_configure(void *obj, void *format) {
+    TRACE("configure", "decoder %p", obj);
     Movie *m = find(obj); if (!m) return ((md_fn)G.orig[MOVIE_CONFIGURE])(obj, format);
     if (!format) return ST_NULL;
     if (m->format != FORMAT_NV12) { LOG("【红】output format %d not implemented on the host (NV12 = 4 only)", m->format); return ST_UNSUPPORTED; }
@@ -506,21 +513,24 @@ static int h_start(void *obj) {
     Signals s = {0};
     pthread_mutex_lock(&m->mu);
     if (!m->configured) { pthread_mutex_unlock(&m->mu); return ST_NOT_CONFIGURED; }
-    m->started = 1; note(m, &s, EV_INPUT);
+    m->started = 1; note(m, &s, EV_INPUT); TRACE("start", "decoder %p, input event %s", obj, m->events && m->events[EV_INPUT] ? "set" : "missing");
     pthread_mutex_unlock(&m->mu); fire(&s);
     return ST_OK;
 }
 static int h_stop(void *obj) {
+    TRACE("stop", "decoder %p", obj);
     Movie *m = find(obj); if (!m) return ((int_fn)G.orig[MOVIE_STOP])(obj);
     pthread_mutex_lock(&m->mu); LOG("stop after %llu frames (%llu dropped to keep time)", (unsigned long long)m->frames, (unsigned long long)m->dropped); release_codec(m); pthread_mutex_unlock(&m->mu);
     return ST_OK;
 }
 static int h_reset(void *obj) {
+    TRACE("reset", "decoder %p", obj);
     Movie *m = find(obj); if (!m) return ((int_fn)G.orig[MOVIE_RESET])(obj);
     pthread_mutex_lock(&m->mu); release_codec(m); m->last_error = 0; pthread_mutex_unlock(&m->mu);
     return ST_OK;
 }
 static int h_flush(void *obj) {
+    TRACE("flush", "decoder %p", obj);
     Movie *m = find(obj); if (!m) return ((int_fn)G.orig[MOVIE_FLUSH])(obj);
     pthread_mutex_lock(&m->mu);
     if (m->configured && m->codec == TYPE_AVC) {   /* parameter sets and session stay; held pictures belong to the old position */
@@ -545,6 +555,7 @@ static int h_acquire_input(void *obj, int *index, int *remaining) {
         *index = m->in_free[0]; memmove(m->in_free, m->in_free + 1, (size_t)--m->nin_free * sizeof m->in_free[0]);
         *remaining = m->nin_free; st = ST_OK;
     }
+    TRACE("acquire input", "status %d index %d (started %d, free %d)", st, *index, m->started, m->nin_free);
     pthread_mutex_unlock(&m->mu); return st;
 }
 typedef int (*ib_fn)(void *, int, void *);
@@ -563,6 +574,7 @@ static int h_send_input(void *obj, int index, int offset, int size, int64_t time
     pthread_mutex_lock(&m->mu);
     if (!m->started) { pthread_mutex_unlock(&m->mu); return ST_ERROR; }
     Pending p = {index, offset, size, time, flags, 0};
+    TRACE("send input", "index %d offset %d size %d time %lld flags %#x, %d pending, %d held, %llu out", index, offset, size, (long long)time, flags, m->npending, m->nheld, (unsigned long long)m->frames);
     if (m->eos_in) { m->in_free[m->nin_free++] = index; note(m, &s, EV_INPUT); }   /* after end of stream: hand the buffer back */
     else if (m->npending || !decode_one(m, &s, &p)) m->pending[m->npending++] = p;
     pthread_mutex_unlock(&m->mu); fire(&s);
@@ -578,6 +590,8 @@ static int h_acquire_output(void *obj, int *index, int64_t *time, unsigned *flag
         Ready r = m->ready[0]; memmove(m->ready, m->ready + 1, (size_t)--m->nready * sizeof m->ready[0]);
         *index = r.index; *time = r.time; *flags = r.flags; *remaining = m->nready; st = ST_OK;
     }
+    if (st == ST_OK) TRACE("acquire output", "index %d time %lld flags %#x", *index, (long long)*time, *flags);
+    else TRACE("acquire output (none)", "%d decoded waiting for their time, %d held, %d pending", m->ndecoded, m->nheld, m->npending);
     pthread_mutex_unlock(&m->mu);
     return st;
 }

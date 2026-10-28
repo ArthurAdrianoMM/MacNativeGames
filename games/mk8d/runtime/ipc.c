@@ -193,6 +193,18 @@ static void control(IpcSession *s, const IpcRequest *rq, IpcResponse *rs) {
     }
 }
 
+/* TOTK_IPC_TRACE=1 (diagnostics, off by default): each service command the first time it is called, with the time since the
+   first one, so what a game step adds stands out. Domain objects are reported with their session's name. */
+static void ipc_trace(const IpcSession *s, const IpcRequest *rq) {
+    static int on = -1; static uint64_t t0; static struct { const char *name; uint32_t cmd; } seen[256]; static unsigned n;
+    if (on < 0) { on = getenv("TOTK_IPC_TRACE") != NULL; t0 = runtime_now_ns(); }
+    if (!on) return;
+    pthread_mutex_lock(&registry);
+    for (unsigned i = 0; i < n; i++) if (seen[i].cmd == rq->cmd && !strcmp(seen[i].name, s->name)) { pthread_mutex_unlock(&registry); return; }
+    if (n < 256) { seen[n].name = s->name; seen[n].cmd = rq->cmd; n++; }
+    pthread_mutex_unlock(&registry);
+    fprintf(stderr, "[totk-ipc-trace] %9.3f %s cmd %u (data %u bytes, a%u b%u x%u c%u)\n", (runtime_now_ns() - t0) / 1e9, s->name, rq->cmd, rq->data_size, rq->na, rq->nb, rq->nx, rq->nc);
+}
 static void dispatch(IpcSession *s, uint32_t *m) {
     IpcRequest rq; const uint32_t *words; unsigned ndata;
     parse(m, &rq, &words, &ndata);
@@ -215,7 +227,7 @@ static void dispatch(IpcSession *s, uint32_t *m) {
         if (h[0] != CMIF_IN_MAGIC) { fprintf(stderr, "[totk-ipc] %s: bad CMIF magic %#x in a domain request\n", s->name, h[0]); runtime_fail("IPC bad CMIF header"); }
         IpcSession *target = domain_get(s->domain, id);
         rq.cmd = h[2]; rq.data = payload + 32; rq.data_size = size - 16u;
-        target->handler(target, &rq, &rs);
+        ipc_trace(target, &rq); target->handler(target, &rq, &rs);
         /* Interfaces a domain object returns are objects of the same domain, not handles. */
         unsigned kept = 0;
         for (unsigned i = 0; i < rs.nmove; i++) {
@@ -238,7 +250,7 @@ static void dispatch(IpcSession *s, uint32_t *m) {
         fputc('\n', stderr); runtime_fail("IPC message type not implemented");
     }
     if (rq.type == T_CONTROL || rq.type == T_CONTROL_CTX) control(s, &rq, &rs);
-    else s->handler(s, &rq, &rs);
+    else { ipc_trace(s, &rq); s->handler(s, &rq, &rs); }
     respond(m, tipc, 0, &rs);
 }
 
