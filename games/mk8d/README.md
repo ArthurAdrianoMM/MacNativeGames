@@ -48,7 +48,9 @@ on the same volume as the work folder its game files are APFS clones and take no
   session's log (`previous-run.log`, `crash-<time>.log`).
 - Create an empty file `MK8D Data/windowed` to play in a window.
 - **First launch is slow, once.** After each packaging, macOS checks the newly signed app (about a minute and a half
-  before anything shows), and the app imports the shader seed into its cache. Later launches reach the title in seconds.
+  before anything shows), the app imports the shader seed into its cache, and Metal rebuilds the pipelines the data folder
+  has recorded before the title (43 s for about 8,000 on an M5, against 5 s on the next start). Later launches reach the
+  title in seconds.
 
 **The shader seed** (step 8 of `build_mk8d.py`; `--skip-seed` leaves it out). Every shader the game has is found in your
 game files, translated to Metal and compiled ahead of time, instead of the first time a scene shows it in play. On an M5
