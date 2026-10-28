@@ -68,8 +68,9 @@ OTHER_GAME = re.compile(r"\.\./(totk|botw|by3|odyssey|ssbu|wonder)\b|games/(totk
 
 
 def other_game_paths(name, text):
-    """Places a file would read another game's folder: Python string literals that are not docstrings, `#include`
-    lines, and Makefile lines that are not comments. Comments and docstrings may name a folder (where a copy came from)."""
+    """Places a file would read another game's folder: Python string literals that are a path (not docstrings, and not
+    text such as a list's header line that names where another game's list lives), `#include` lines, and Makefile lines
+    that are not comments. Comments and docstrings may name a folder (where a copy came from)."""
     if name.endswith(".py"):
         tree = ast.parse(text)
         docstrings = {id(node.body[0].value) for node in ast.walk(tree)
@@ -77,7 +78,7 @@ def other_game_paths(name, text):
                       and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
         return [f"{name}:{node.lineno}: {node.value!r}" for node in ast.walk(tree)
                 if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
-                and OTHER_GAME.search(node.value)]
+                and not any(c.isspace() for c in node.value) and OTHER_GAME.search(node.value)]
     lines = enumerate(text.splitlines(), 1)
     if name == "Makefile" or name.endswith(".mk"):
         return [f"{name}:{n}: {line.strip()}" for n, line in lines
@@ -100,6 +101,8 @@ class OwnFolder(unittest.TestCase):
     def test_the_check_finds_a_read(self):
         self.assertTrue(other_game_paths("x.py", 'def f(source="games/totk/assets/list.tsv"):\n    """games/totk is fine here"""\n'))
         self.assertFalse(other_game_paths("x.py", '"""Copied from games/totk/scripts."""\n# games/odyssey too\n'))
+        self.assertFalse(other_game_paths("x.py", "HEADER = '# TOTK shader list v1 (games/totk/scripts/shader_list.py)'\n"))
+        self.assertTrue(other_game_paths("x.py", "LIST = Path('../totk/assets/shader_list.tsv')\n"))
         self.assertTrue(other_game_paths("Makefile", "LIST := ../odyssey/assets/x.tsv  # copied\n"))
         self.assertFalse(other_game_paths("Makefile", "# from games/odyssey at ff63a16\n"))
         self.assertTrue(other_game_paths("x.c", '#include "../../totk/runtime/runtime.h"\n'))
