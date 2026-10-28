@@ -74,6 +74,17 @@ def expand_nsz(game: Path, keys: Path, work: Path, py: str) -> Path:
     return output
 
 
+def icloud_synced(path: Path) -> bool:
+    """iCloud Drive itself, or Desktop / Documents while macOS syncs them to it."""
+    home = Path.home()
+    if home / "Library/Mobile Documents" in path.parents:
+        return True
+    if not any(folder in path.parents or folder == path for folder in (home / "Desktop", home / "Documents")):
+        return False
+    synced = subprocess.run(["defaults", "read", "com.apple.finder", "FXICloudDriveDocuments"], capture_output=True, text=True)
+    return synced.stdout.strip() == "1"
+
+
 def preflight(args, py):
     problems = []
     if sys.platform != "darwin" or os.uname().machine != "arm64":
@@ -96,6 +107,9 @@ def preflight(args, py):
     checkout = GAME_DIR.parents[1]
     if checkout in args.work.parents and not any(p.parent == GAME_DIR and p.name.endswith("_build") for p in args.work.parents | {args.work}):
         problems.append(f"--work must be outside the checkout, or an ignored *_build folder of games/mk8d: {args.work}")
+    if icloud_synced(args.work):
+        problems.append(f"--work is inside iCloud Drive, which would upload the game data (tens of GB) and keep staged copies in "
+                        f"~/Library/Application Support/CloudDocs: pick a folder outside it, e.g. ~/mk8d-work ({args.work})")
     if " " in os.path.relpath(args.work, GAME_DIR):
         problems.append(f"make cannot build into a folder whose path has a space: {args.work}")
     # About 25 GB from NSPs (the joined NSP and the merged RomFS, 12 GB each), 12 GB more for expanded NSZs.
