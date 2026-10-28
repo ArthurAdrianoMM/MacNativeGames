@@ -533,7 +533,7 @@ void mtl_init(void) {
     g_dev = MTLCreateSystemDefaultDevice();
     if (!g_dev) MDIE("没有 Metal 设备");
     if (!g_dev.hasUnifiedMemory) MDIE("需要统一内存设备（零拷贝内存池）");
-#if defined(GAME_ODYSSEY) && !TARGET_OS_IPHONE
+#if defined(GAME_MK8D) && !TARGET_OS_IPHONE
     /* Odyssey: ask the Metal compiler service for as many concurrent compile tasks as the device allows (macOS 13+), so
        the warm-up, prefetch and prediction queues compile side by side instead of queuing. DM_MAX_CONCURRENT_COMPILE=0 off. */
     { const char *e = getenv("DM_MAX_CONCURRENT_COMPILE");
@@ -4485,7 +4485,7 @@ static int pf_block_compressed(NSUInteger pf) { return pf >= 130 && pf <= 222 &&
 // through a buffer when the pass ends (and copied back first when the pass loads the old contents).
 int nvn_fmt_bpb(int format, int *bw, int *bh);
 static NSMutableDictionary<NSNumber *, id<MTLTexture>> *g_blkaux;
-typedef struct { __unsafe_unretained id<MTLTexture> aux, dst; NSUInteger level, slice, plane, lw, lh, bx, by, bpb; int decode, fmt; } blk_wb;   // plane: 3D depth plane
+typedef struct { __unsafe_unretained id<MTLTexture> aux, dst; NSUInteger level, alevel, slice, plane, lw, lh, bx, by, bpb; int decode, fmt; } blk_wb;   // plane: 3D depth plane; alevel: the level in aux
 static blk_wb g_blk_wb[8]; static int g_nblk_wb;
 /* GPUs without BC (A15/A16): the compressed texture exists only decompressed (bc_unpack), so the rendered blocks are
    decoded into it with the upload decoder (bcd) instead of being copied. The auxiliary block texture is kept per texture
@@ -4504,7 +4504,7 @@ static void blk_transcode(id<MTLTexture> aux, const blk_wb *w) {
     id<MTLBuffer> pb; size_t po = arena_alloc(32, &pb);
     uint32_t *pp = (uint32_t *)((uint8_t *)pb.contents + po); pp[0] = 0; pp[1] = (uint32_t)row; pp[2] = (uint32_t)w->lw; pp[3] = (uint32_t)w->lh; pp[4] = (uint32_t)w->fmt; pp[5] = 0;
     id<MTL4ComputeCommandEncoder> e = blit();
-    enc_b_copy_texture_buffer(e, aux, w->slice, w->level, MTLOriginMake(0, 0, 0), MTLSizeMake(w->bx, w->by, 1), b, 0, row, size);
+    enc_b_copy_texture_buffer(e, aux, w->slice, w->alevel, MTLOriginMake(0, 0, 0), MTLSizeMake(w->bx, w->by, 1), b, 0, row, size);
     [e barrierAfterEncoderStages:MTLStageBlit beforeEncoderStages:MTLStageDispatch visibilityOptions:MTL4VisibilityOptionDevice];
     [e setArgumentTable:at]; [e setComputePipelineState:ps];
     [at setAddress:b.gpuAddress atIndex:0]; [at setAddress:pb.gpuAddress + po atIndex:1]; [at setAddress:ab.gpuAddress atIndex:2];
@@ -4534,7 +4534,7 @@ static void blk_decode(id<MTLTexture> aux, const blk_wb *w) {
     id<MTLBuffer> pb; size_t po = arena_alloc(32, &pb);
     uint32_t *pp = (uint32_t *)((uint8_t *)pb.contents + po); pp[0] = 0; pp[1] = (uint32_t)row; pp[2] = (uint32_t)w->lw; pp[3] = (uint32_t)w->lh; pp[4] = (uint32_t)w->fmt; pp[5] = (uint32_t)w->plane;
     id<MTL4ComputeCommandEncoder> e = blit();
-    enc_b_copy_texture_buffer(e, aux, w->slice, w->level, MTLOriginMake(0, 0, w->plane), MTLSizeMake(w->bx, w->by, 1), b, 0, row, size);
+    enc_b_copy_texture_buffer(e, aux, w->slice, w->alevel, MTLOriginMake(0, 0, w->plane), MTLSizeMake(w->bx, w->by, 1), b, 0, row, size);
     [e barrierAfterEncoderStages:MTLStageBlit beforeEncoderStages:MTLStageDispatch visibilityOptions:MTL4VisibilityOptionDevice];
     [e setArgumentTable:at]; [e setComputePipelineState:ps];
     [at setAddress:b.gpuAddress atIndex:0]; [at setAddress:pb.gpuAddress + po atIndex:1]; [at setTexture:v.gpuResourceID atIndex:0];
@@ -4551,10 +4551,10 @@ static void blk_copy(id<MTLTexture> from, int from_aux, id<MTLTexture> to, const
     res_add(b);
     id e = blit();
     MTLSize blocks = MTLSizeMake(w->bx, w->by, 1), texels = MTLSizeMake(w->lw, w->lh, 1);
-    enc_b_copy_texture_buffer(e, from, w->slice, w->level, MTLOriginMake(0, 0, w->plane), from_aux ? blocks : texels, b, 0, row, size);
+    enc_b_copy_texture_buffer(e, from, w->slice, from_aux ? w->alevel : w->level, MTLOriginMake(0, 0, w->plane), from_aux ? blocks : texels, b, 0, row, size);
     if ([e respondsToSelector:@selector(barrierAfterEncoderStages:beforeEncoderStages:visibilityOptions:)])
         [e barrierAfterEncoderStages:MTLStageBlit beforeEncoderStages:MTLStageBlit visibilityOptions:MTL4VisibilityOptionDevice];
-    enc_b_copy_buffer_texture(e, b, 0, row, size, from_aux ? texels : blocks, to, w->slice, w->level, MTLOriginMake(0, 0, w->plane));
+    enc_b_copy_buffer_texture(e, b, 0, row, size, from_aux ? texels : blocks, to, w->slice, from_aux ? w->level : w->alevel, MTLOriginMake(0, 0, w->plane));
     defer_obj_release(b);
 }
 // Returns the auxiliary render texture for attachment i (nil when the attachment renders directly) and fills *w.
@@ -4568,24 +4568,29 @@ static id<MTLTexture> blk_aux(const tex_t *t, const view_t *v, int has_v, blk_wb
     if (!has_v || !v->set_format || !bpb || vbpb != bpb || vbw != 1 || vbh != 1 || !nvn_fmt_to_mtl(v->format, &vpf, swz) || pf_block_compressed(vpf))
         MDIE("render target on compressed texture format %#x through view format %#x: no block-sized uncompressed view", t->d.format, has_v && v->set_format ? v->format : 0);
     int is3d = base.textureType == MTLTextureType3D;
-    if (base.textureType != MTLTextureType2D && base.textureType != MTLTextureType2DArray && !is3d) MDIE("compressed render target of texture type %lu", (unsigned long)base.textureType);
+    /* Cubes and cube arrays address faces (layer * 6 + face) as slices, like a 2D array: the auxiliary texture takes the same
+       type and the view's slice. Mario Kart 8 Deluxe renders into a block-compressed cube as a course loads. */
+    if (base.textureType != MTLTextureType2D && base.textureType != MTLTextureType2DArray && base.textureType != MTLTextureTypeCube &&
+        base.textureType != MTLTextureTypeCubeArray && !is3d) MDIE("compressed render target of texture type %lu", (unsigned long)base.textureType);
+    /* One auxiliary texture per level, exactly that level's blocks: a texture's small levels all hold one block, which one
+       auxiliary mip chain cannot (a 128x128 BC cube has 8 levels, its 32x32 blocks only 6; Mario Kart 8 Deluxe renders
+       every level of its compressed cubes). */
     if (!g_blkaux) g_blkaux = [NSMutableDictionary dictionary];
-    NSNumber *key = @(t->serial); id<MTLTexture> a = g_blkaux[key];
-    NSUInteger aw = (base.width + bw - 1) / bw, ah = (base.height + bh - 1) / bh;
+    NSUInteger lv = v->set_levels ? v->base_level : 0, sl = v->set_layers ? v->min_layer : 0;
+    NSUInteger lw = MAX(base.width >> lv, 1u), lh = MAX(base.height >> lv, 1u);
+    NSNumber *key = @(t->serial << 5 | lv); id<MTLTexture> a = g_blkaux[key];
+    NSUInteger aw = (lw + bw - 1) / bw, ah = (lh + bh - 1) / bh;
     if (!a || a.pixelFormat != vpf || a.width != aw || a.height != ah) {
         MTLTextureDescriptor *d = [MTLTextureDescriptor new];
         d.textureType = base.textureType; d.pixelFormat = (MTLPixelFormat)vpf; d.width = aw; d.height = ah;
-        d.arrayLength = base.arrayLength; d.depth = base.depth; d.mipmapLevelCount = base.mipmapLevelCount;
+        d.arrayLength = base.arrayLength; d.depth = is3d ? MAX(base.depth >> lv, 1u) : base.depth; d.mipmapLevelCount = 1;
         d.storageMode = MTLStorageModePrivate; d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
         a = [g_dev newTextureWithDescriptor:d];
         if (!a) MDIE("auxiliary block render texture %lux%lu", (unsigned long)aw, (unsigned long)ah);
         res_add(a); g_blkaux[key] = a;
         static int once; if (!once++) MLOG("[totk] rendering into compressed texture format %#x through view format %#x via a %lux%lu block texture", t->d.format, v->format, (unsigned long)aw, (unsigned long)ah);
     }
-    NSUInteger lv = v->set_levels ? v->base_level : 0, sl = v->set_layers ? v->min_layer : 0;
-    NSUInteger lw = MAX(base.width >> lv, 1u), lh = MAX(base.height >> lv, 1u);
-    *w = (blk_wb){a, base, lv, is3d ? 0 : sl, is3d ? sl : 0, lw, lh, (lw + bw - 1) / bw, (lh + bh - 1) / bh, (NSUInteger)bpb, decode, decode == 2 ? bc1_rgba(t->d.format) : decode ? bcd_fmt(t->d.format) : 0};
-    if (w->bx > MAX(a.width >> lv, 1u) || w->by > MAX(a.height >> lv, 1u)) MDIE("compressed render target level %lu block size mismatch", (unsigned long)lv);
+    *w = (blk_wb){a, base, lv, 0, is3d ? 0 : sl, is3d ? sl : 0, lw, lh, aw, ah, (NSUInteger)bpb, decode, decode == 2 ? bc1_rgba(t->d.format) : decode ? bcd_fmt(t->d.format) : 0};
     return a;
 }
 static id<MTLTexture> g_nt_watch; static void *g_nt_watch_ptr; static uint64_t g_nt_watch_ser;
@@ -4818,7 +4823,7 @@ static id<MTL4RenderCommandEncoder> rp_begin_ex(int clear_only) {
           static int ownlog = -1; if (ownlog < 0) ownlog = getenv("DM_NVN_OWNLOG") != NULL;
           if (ownlog && !was && tex_mirrored(ot)) MLOG("[ownlog] ser=%llu %ux%ux%u lv%u nvnfmt=%#x flags=%#x pool=%p pflags=%#x mem=%p off=%lld: GPU-rendered texture in a CPU-visible pool", (unsigned long long)ot->serial,
               ot->d.width, ot->d.height, ot->d.depth, ot->d.levels, ot->d.format, ot->d.flags, (void *)ot->pool, ot->pool ? ot->pool->flags : 0, (void *)ot->mem, (long long)ot->off); }
-        if (i < 8 && preaux[i]) { pd.colorAttachments[i].texture = preaux[i]; if (g_nblk_wb < 8) g_blk_wb[g_nblk_wb++] = pre[i]; }
+        if (i < 8 && preaux[i]) { pd.colorAttachments[i].texture = preaux[i]; pd.colorAttachments[i].level = pre[i].alevel; if (g_nblk_wb < 8) g_blk_wb[g_nblk_wb++] = pre[i]; }
         { MTLPixelFormat pf = pd.colorAttachments[i].texture.pixelFormat;   // TOTK: Metal cannot render to block-compressed formats
           if (pf_block_compressed(pf))
               MDIE("render target %d is block-compressed: NVN texture format %#x view %s format %#x, %ux%u, Metal format %lu", i, R.rt.color[i]->d.format,
@@ -7381,7 +7386,7 @@ static void warm_filled(void) {
 static _Atomic int g_world_on;   // set at the first world frame (hle_nvn.c, nvnQueuePresentTexture)
 void mtl_note_world(void) { atomic_store(&g_world_on, 1); }
 static int par_game_idle(void) {   // totk_pipeline_archive.h: additions to the archive wait for this
-#ifdef GAME_ODYSSEY   /* Odyssey's world gate (>2000 draws in a frame) is unverified: idle = warm-up done and no compile for 3 s */
+#ifdef GAME_MK8D   /* Odyssey's world gate (>2000 draws in a frame) is unverified: idle = warm-up done and no compile for 3 s */
     return !atomic_load(&g_warm_running) && clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - atomic_load(&g_par_last_compile_ns) > PAR_IDLE_NS;
 #else
     return atomic_load(&g_world_on) && !atomic_load(&g_warm_running) &&
@@ -13500,7 +13505,7 @@ int mtl_probe_blockrt(void) {
         d.pixelFormat = cases[c].view; d.width = (cases[c].w + 3) / 4; d.height = (cases[c].h + 3) / 4; d.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
         id<MTLTexture> aux = [g_dev newTextureWithDescriptor:d], aux2 = [g_dev newTextureWithDescriptor:d]; if (!aux || !aux2) MDIE("probe block texture case %u", c); res_add(aux); res_add(aux2);
         NSUInteger lv = cases[c].level, lw = MAX(cases[c].w >> lv, 1u), lh = MAX(cases[c].h >> lv, 1u);
-        blk_wb w = {aux, bc, lv, 0, cases[c].plane, lw, lh, (lw + 3) / 4, (lh + 3) / 4, cases[c].bpb};
+        blk_wb w = {aux, bc, lv, lv, 0, cases[c].plane, lw, lh, (lw + 3) / 4, (lh + 3) / 4, cases[c].bpb};   /* this probe's block texture is a full chain */
         NSUInteger row = w.bx * w.bpb, size = row * w.by;
         id<MTLBuffer> ref = probe_buf(size), rb1 = probe_buf(size), rb2 = probe_buf(size), rb3 = probe_buf(size);
         uint8_t *r = ref.contents; for (NSUInteger i = 0; i < size; i++) r[i] = (uint8_t)(i * 31 + c * 7 + 5);
