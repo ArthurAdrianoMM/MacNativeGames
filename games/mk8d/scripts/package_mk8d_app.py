@@ -81,6 +81,18 @@ def main():
     for font in sorted((work / "extracted/firmware/shared-fonts").glob("*.bfttf")):
         clone(font, game / "fonts" / font.name)
     os.symlink("../Resources/game/build/mk8d-native", macos / "mk8d-native")
+    # The whole-game shader seed (scripts/prepare_mk8d_shader_seed.py): the runtime imports build/shader-seed beside its
+    # real executable (totk_shader_rt.m root_dir, symlinks resolved) into the data folder's cache on the first start,
+    # checking every file against seed-manifest.json; later starts only compare the receipt.
+    seed = work / "build/shader-seed"
+    if (seed / "seed-manifest.json").is_file():
+        subprocess.run(["cp", "-cR", str(seed), str(game / "build/shader-seed")], check=True)
+    # Its Metal libraries (scripts/precompile_shader_libs.py). The runtime looks for them beside the executable path it was
+    # started by (nvn_mtl.m exe_rel, not resolved), which here is Contents/MacOS, so they are linked there too.
+    libs = work / "build/shader-libs"
+    if any(libs.glob("*.metallib")):   # one folder clone: tens of thousands of files
+        subprocess.run(["cp", "-cR", str(libs), str(game / "build/shader-libs")], check=True)
+        os.symlink("../Resources/game/build/shader-libs", macos / "shader-libs")
     subprocess.run(["xcrun", "clang", "-O2", "-Wall", "-Wextra", "-Werror", "-o", str(macos / "MK8D"),
                     str(GAME_DIR / "scripts/mk8d_app_launcher.c"), "-framework", "CoreFoundation"], check=True)
     subprocess.run(["sips", "-s", "format", "icns", str(icon), "--out", str(resources / "MK8DIcon.icns")],

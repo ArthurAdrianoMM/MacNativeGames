@@ -14,9 +14,12 @@ so a failed run can simply be started again):
  5. loader tables: verifies ExeFS, rewrite and RomFS against assets/expected-4.0.1.json
  6. shader tools (pinned SPIRV-Cross) and the runtime
  7. the app icon, read from the update's Control data (for `make app`, scripts/package_mk8d_app.py)
+ 8. the whole-game shader seed (scripts/prepare_mk8d_shader_seed.py) and its Metal libraries
+    (scripts/precompile_shader_libs.py): every shader translated and compiled now instead of the first time a scene
+    shows it in play. The longest step on the first build, reused after; --skip-seed leaves it out.
 
 Everything written stays in the work folder, outside the checkout (or an ignored *_build folder of games/mk8d): it holds
-game data, so never share or commit it. The whole-game shader seed is not built yet; `make app WORK=…` packages the app.
+game data, so never share or commit it. `make app WORK=…` packages the app.
 """
 import argparse
 import json
@@ -131,6 +134,7 @@ def main():
     p.add_argument("--work", type=Path, required=True, help="build folder outside the checkout")
     p.add_argument("--developer-dir", default="/Applications/Xcode.app/Contents/Developer")
     p.add_argument("--jobs", type=int, default=os.cpu_count() or 8)
+    p.add_argument("--skip-seed", action="store_true", help="leave out the whole-game shader seed (more stutter on first visits)")
     args = p.parse_args()
     for name in ("game", "update", "keys", "firmware", "work"):
         setattr(args, name, getattr(args, name).expanduser().resolve())
@@ -214,6 +218,15 @@ def main():
         print("   icon already extracted")
     else:   # an NSZ keeps its small Control NCA as is, so the update is read where it is
         run([py, "scripts/extract_app_icon.py", args.update, *keyargs, "--output", icon])
+    done(t)
+
+    t = step(8, "Whole-game shader seed and its Metal libraries")
+    if args.skip_seed:
+        print("   skipped (--skip-seed): each shader is translated the first time a scene shows it")
+    else:   # each is reused when its inputs are unchanged
+        run([py, "scripts/prepare_mk8d_shader_seed.py", "--work", work])
+        run([py, "scripts/precompile_shader_libs.py", "--work", work, "--jobs", min(args.jobs, 8),
+             "--developer-dir", args.developer_dir])
     done(t)
     print(f"\nBuilt {work / 'build/mk8d-native'} in {(time.monotonic() - started) / 60:.0f} min. The work folder holds game data "
           f"from your own dump: do not share it.\nPlay: make run WORK={work}, or package the app: make app WORK={work}")
