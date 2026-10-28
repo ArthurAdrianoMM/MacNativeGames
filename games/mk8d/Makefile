@@ -39,11 +39,15 @@ runtime: shader-tools $(OUT)/mk8d-native
 
 # Play from the work folder (no app package yet): saves, shader cache and the game slot go in $(WORK)/play. TOTK_INPUT_FILE
 # takes diagnostic commands ("shot <png>", "key <code> <ms>"; runtime/input.c).
+# DM_PRESENT_LINK_FALLBACK=1 (as Bayonetta 3's launcher): when macOS stops the display link for a window in front (seen after
+# the display woke up), presents go on without it instead of the picture freezing; the link is tried again later.
+# DM_PRESENT_LINK=0: present each frame without the display link. Started from some shells (no active display list), the link
+# went silent for 10-46 s at a time with the window in front; frame pacing of both modes is measured in phase 5.
 PLAY = $(abspath $(WORK))/play
 .PHONY: run
 run: runtime
 	mkdir -p "$(PLAY)/profile" "$(PLAY)/shader-cache" "$(PLAY)/slot" && : > "$(PLAY)/commands.txt"
-	cd "$(WORK)" && TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_WIDEN=1 TOTK_GPU_BLOCKRT=1 TOTK_GPU_MIDCLEAR=1 TOTK_SHADER_ASYNC=1 \
+	cd "$(WORK)" && TOTK_GPU_ALLOW_SUBMIT=1 TOTK_GPU_WIDEN=1 TOTK_GPU_BLOCKRT=1 TOTK_GPU_MIDCLEAR=1 TOTK_SHADER_ASYNC=1 DM_PRESENT_LINK=0 DM_PRESENT_LINK_FALLBACK=1 \
 	  TOTK_PROFILE_DIR="$(PLAY)/profile" TOTK_SHADER_CACHE="$(PLAY)/shader-cache/rt" TOTK_ROMFS="$(abspath $(WORK))/extracted/local/romfs" \
 	  TOTK_SHARED_FONTS="$(abspath $(WORK))/extracted/firmware/shared-fonts" TOTK_INPUT_FILE="$(PLAY)/commands.txt" \
 	  TOTK_GAME_SLOT_DIR="$(PLAY)/slot" TOTK_SLOT_OWNER=user TOTK_SLOT_PURPOSE=play TOTK_ROMFS_PATCHES=0 TOTK_ROMFS_PROOF_DIR="$(PLAY)" \
