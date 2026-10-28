@@ -106,7 +106,7 @@ def preflight(args, py):
     if not args.firmware.is_dir():
         problems.append(f"{args.firmware} is not a folder of firmware NCA files (the system fonts come from it)")
     checkout = GAME_DIR.parents[1]
-    if checkout in args.work.parents and not any(p.parent == GAME_DIR and p.name.endswith("_build") for p in args.work.parents | {args.work}):
+    if checkout in args.work.parents and not any(p.parent == GAME_DIR and p.name.endswith("_build") for p in {*args.work.parents, args.work}):
         problems.append(f"--work must be outside the checkout, or an ignored *_build folder of games/mk8d: {args.work}")
     if icloud_synced(args.work):
         problems.append(f"--work is inside iCloud Drive, which would upload the game data (tens of GB) and keep staged copies in "
