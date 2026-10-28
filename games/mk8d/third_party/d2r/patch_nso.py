@@ -653,13 +653,20 @@ def ldrsw_table(insl, j, fa, fb):
     """Breath of the Wild 1.6.0 (older clang): a table of signed 32-bit offsets from its own base,
         cmp wK, #n-1 ; b.hi default ; [mov wI, wK] ; adrp xT, page ; add xT, xT, #lo ; ldrsw xE, [xT, xI, lsl #2] ; add x18, xE, xT ; br x18
     (T, E, I may be x18). The table is read from the image; returns (base, count) covering every target, each one checked to be an
-    instruction of this function, or None when the dispatch does not have exactly this shape."""
+    instruction of this function, or None when the dispatch does not have exactly this shape.
+    Mario Kart 8 Deluxe 4.0.1 subsdk0 (the movie library) has two variations of it, both accepted here: a few moves that leave x18
+    alone between the add and the br, and a table base set up once in the function's prologue, outside this window. Such a base is
+    taken only when the adrp / add pair is the only write to xT in the whole function and the function makes no calls, so xT holds
+    the table on every path to the br."""
     ops = lambda p: [o.strip() for o in p.op_str.replace('[', '').replace(']', '').split(',')]
     ctx = insl[max(0, j - 48):j]
     writes = lambda p, r: r is not None and p.mnemonic not in ('str', 'stur', 'stp', 'strb', 'strh', 'cmp', 'cmn', 'tst', 'b', 'bl', 'br', 'blr', 'ret',
                                                                'cbz', 'cbnz', 'tbz', 'tbnz') \
         and not p.mnemonic.startswith('b.') and ops(p)[0] in (f'x{r}', f'w{r}')
+    branch = lambda p: p.mnemonic in ('b', 'bl', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz') or p.mnemonic.startswith('b.')
     k = len(ctx) - 1
+    while k >= 0 and len(ctx) - 1 - k < 4 and not branch(ctx[k]) and not writes(ctx[k], 18) and ctx[k].mnemonic != 'add':
+        k -= 1                                   # moves scheduled between the add and the br
     if k < 0 or ctx[k].mnemonic != 'add' or len(ops(ctx[k])) != 3 or ops(ctx[k])[0] != 'x18':
         return None
     a, b = ops(ctx[k])[1:]
@@ -676,16 +683,23 @@ def ldrsw_table(insl, j, fa, fb):
     E, T, I = num(o[0]), num(o[1]), num(o[2])
     if None in (E, T, I) or any(writes(p, T) or writes(p, I) for p in ctx[k2 + 1:k]):
         return None
-    k3 = k2 - 1                                  # the table base: adrp xT, page ; add xT, xT, #lo
-    while k3 >= 0 and not writes(ctx[k3], T): k3 -= 1
-    if k3 < 1 or ctx[k3].mnemonic != 'add' or ops(ctx[k3])[:2] != [f'x{T}', f'x{T}'] or not ops(ctx[k3])[2].startswith('#'):
-        return None
-    lo = int(ops(ctx[k3])[2][1:], 0)
-    k4 = k3 - 1
-    while k4 >= 0 and not writes(ctx[k4], T): k4 -= 1
-    if k4 < 0 or ctx[k4].mnemonic != 'adrp' or ops(ctx[k4])[0] != f'x{T}':
-        return None
-    table = ctx[k4].operands[1].imm + lo
+    def base_pair(seq):                          # the table base: adrp xT, page ; add xT, xT, #lo, the last writes to xT in seq
+        k3 = len(seq) - 1
+        while k3 >= 0 and not writes(seq[k3], T): k3 -= 1
+        if k3 < 1 or seq[k3].mnemonic != 'add' or ops(seq[k3])[:2] != [f'x{T}', f'x{T}'] or not ops(seq[k3])[2].startswith('#'):
+            return None
+        k4 = k3 - 1
+        while k4 >= 0 and not writes(seq[k4], T): k4 -= 1
+        if k4 < 0 or seq[k4].mnemonic != 'adrp' or ops(seq[k4])[0] != f'x{T}':
+            return None
+        return seq[k4].operands[1].imm + int(ops(seq[k3])[2][1:], 0)
+    table = base_pair(ctx[:k2])
+    if table is None:                            # set once for the whole function (MK8D subsdk0): the only writes, no calls
+        if any(p.mnemonic in ('bl', 'blr') for p in insl) or sum(writes(p, T) for p in insl) != 2:
+            return None
+        table = base_pair([p for p in insl if p.address < ctx[k2].address])
+        if table is None:
+            return None
     src = {I}; k5 = k2 - 1                      # the bound: b.hi / b.hs after a cmp on the index or on the register it was copied from
     while k5 >= 0 and ctx[k5].mnemonic not in ('b.hi', 'b.hs'):
         p = ctx[k5]
