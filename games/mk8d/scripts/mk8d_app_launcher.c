@@ -84,6 +84,10 @@ int main(void) {
     setenv("TOTK_GPU_ALLOW_SUBMIT", "1", 1); setenv("TOTK_GPU_WIDEN", "1", 1); setenv("TOTK_GPU_BLOCKRT", "1", 1);
     setenv("TOTK_GPU_MIDCLEAR", "1", 1); setenv("TOTK_SHADER_ASYNC", "1", 0);
     setenv("DM_PRESENT_LINK", "0", 0); setenv("DM_PRESENT_LINK_FALLBACK", "1", 0);
+    /* Warm up only the shaders this Mac has used (pso_user.tsv, pso_collected.tsv). With the whole-game seed in the cache,
+       warming all of it at every start would load about 30,000 libraries (6,691 took 4.6 s and 460 MB on an M5); the
+       rest load at first use, from the precompiled libraries. TOTK_WARM_SCOPE=all warms everything as before. */
+    setenv("TOTK_WARM_SCOPE", "observed", 0);
     setenv("TOTK_PROFILE_DIR", profile, 1); setenv("TOTK_SHADER_CACHE", cache, 1);
     setenv("TOTK_ROMFS", romfs, 1); setenv("TOTK_SHARED_FONTS", fonts, 1); setenv("TOTK_INPUT_FILE", commands, 1);
     setenv("TOTK_GAME_SLOT_DIR", slot, 1); setenv("TOTK_SLOT_OWNER", "user", 1); setenv("TOTK_SLOT_PURPOSE", "mk8d-app", 1);
